@@ -1,0 +1,7 @@
+# The compiled binary is ELF. Never tracked: the collection's audit rejects
+# any tracked file whose first four bytes are 7f 45 4c 46.
+/auditp
+/auditp-*
+# Scratch: harvested corpora, oracle transcripts, mutant builds.
+/scratch/
+/t/tmp.*
