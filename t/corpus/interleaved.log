@@ -1,0 +1,9 @@
+type=SYSCALL msg=audit(1700000000.137:1001): arch=c000003e syscall=257 success=yes exit=3 a0=ffffff9c a1=7ffd0000 a2=0 a3=0 items=1 ppid=1 pid=11 auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=1 comm="widgetd" exe="/opt/widget/bin/widgetd" key="watch-etc"
+type=SYSCALL msg=audit(1700000000.274:1002): arch=c000003e syscall=59 success=yes exit=0 a0=1 a1=2 a2=3 a3=4 items=2 ppid=1 pid=12 auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=pts0 ses=1 comm="bargen" exe="/opt/widget/libexec/bargen" key=(null)
+type=CWD msg=audit(1700000000.137:1001): cwd="/srv"
+type=CWD msg=audit(1700000000.274:1002): cwd="/opt"
+type=PATH msg=audit(1700000000.137:1001): item=0 name="/etc/widget.conf" inode=7 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL
+type=PATH msg=audit(1700000000.274:1002): item=0 name="/opt/widget/bin/widgetd" inode=9 dev=fd:01 mode=0100755 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL
+type=PATH msg=audit(1700000000.274:1002): item=1 name="/lib64/ld-linux-x86-64.so.2" inode=11 dev=fd:01 mode=0100755 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL
+type=PROCTITLE msg=audit(1700000000.137:1001): proctitle=2F6F70742F7769646765742F62696E2F77696467657464002D63002F6574632F7769646765742E636F6E66
+type=PROCTITLE msg=audit(1700000000.274:1002): proctitle="/opt/widget/libexec/bargen"
