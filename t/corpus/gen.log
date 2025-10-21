@@ -844,7 +844,7 @@ type=LANDLOCK_ACCESS msg=audit(1700000077.953:1569): domain=13d3841cc blockers=f
 type=LANDLOCK_DOMAIN msg=audit(1700000078.090:1570): domain=13d3841cc status=allocated mode=enforcing pid=18241 uid=0 exe="/opt/widget/libexec/bargen" comm="qux-helper"
 type=UNKNOWN[1138] msg=audit(1700000078.227:1571): pid=927 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='op=update sw="mesh-agent-3.11.0-2.x86_64" sw_type=rpm key_enforce=0 gpg_res=1 root_dir="/" comm="widget-updater" exe="/usr/libexec/widget-updater" hostname=? addr=? terminal=? res=success'
 type=UNKNOWN[2300] msg=audit(1700000078.364:1572): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=frobnicator-sweep comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
-type=UNKNOWN[9999] msg=audit(1700000078.501:1573): mystery=1 note=612074797065206E6F7468696E67206E616D6573
+type=UNKNOWN[9999] msg=audit(1700000078.501:1573): mystery=1 note="a-type-nothing-names"
 type=PATH msg=audit(1700000078.638:1574): item=0 name=2F7372762F646174612F776974682073706163652E747874 inode=42 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL
 type=PATH msg=audit(1700000078.775:1575): item=0 name=2F7372762F646174612F77697468097461622E747874 inode=42 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL
 type=PATH msg=audit(1700000078.912:1576): item=0 name=2F7372762F646174612F776974680A6E65776C696E652E747874 inode=42 dev=fd:01 mode=0100644 ouid=0 ogid=0 rdev=00:00 nametype=NORMAL

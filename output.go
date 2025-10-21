@@ -161,6 +161,48 @@ func writeFlat(w io.Writer, events []*Event, ip *Interp) {
 	}
 }
 
+// writeDecode emits the decoded bytes of every field, escaped the way
+// t/gen.py escapes its ground-truth file.  This is the one comparison in
+// the project that does not involve ausearch: it asks whether the decoder
+// recovers the bytes that were encoded, against a file written by the
+// thing that encoded them.  Agreeing with a second decoder and agreeing
+// with the original are different claims, and the hex encoding exists
+// precisely for bytes that both decoders might mangle the same way.
+func writeDecode(w io.Writer, events []*Event) {
+	for _, ev := range events {
+		for idx, r := range ev.Records {
+			for i := range r.Fields {
+				f := &r.Fields[i]
+				emitDecoded(w, ev.Key, idx, f.Name, decodeField(r, f))
+				for j := range f.Sub {
+					g := &f.Sub[j]
+					emitDecoded(w, ev.Key, idx, f.Name+"."+g.Name,
+						decodeField(r, g))
+				}
+			}
+		}
+	}
+}
+
+func emitDecoded(w io.Writer, key string, idx int, name string, val []byte) {
+	fmt.Fprintf(w, "%s\t%d\t%s\t", key, idx, name)
+	for _, c := range val {
+		switch {
+		case c == '\\':
+			io.WriteString(w, "\\\\")
+		case c == '\t':
+			io.WriteString(w, "\\t")
+		case c == '\n':
+			io.WriteString(w, "\\n")
+		case c < 0x20 || c > 0x7e:
+			fmt.Fprintf(w, "\\x%02x", c)
+		default:
+			w.Write([]byte{c})
+		}
+	}
+	fmt.Fprintln(w)
+}
+
 func writeCensus(w io.Writer, st *Stats) {
 	fmt.Fprintf(w, "lines           %d\n", st.Lines)
 	fmt.Fprintf(w, "records         %d\n", st.Records)
@@ -177,10 +219,22 @@ func writeCensus(w io.Writer, st *Stats) {
 	fmt.Fprintf(w, "hex-shaped      %d\n", st.HexShaped)
 	fmt.Fprintf(w, "distinct-types  %d\n", len(st.Types))
 	fmt.Fprintf(w, "distinct-names  %d\n", len(st.Names))
+	for _, n := range sortedKeys(st.EscapedPairs) {
+		fmt.Fprintf(w, "escaped-pair %s\n", n)
+	}
 	dump(w, "type", st.Types)
 	dump(w, "name", st.Names)
 	dump(w, "interp", st.Interp)
 	dump(w, "refused", st.Refused)
+}
+
+func sortedKeys(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func dump(w io.Writer, tag string, m map[string]int) {

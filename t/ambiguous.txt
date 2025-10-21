@@ -1,0 +1,14 @@
+# Fields where ausearch's own output cannot be parsed back to the value it
+# printed, so a disagreement here is a property of the format rather than a
+# defect in auditp.  Each line is KEY <TAB> RECORD-INDEX <TAB> FIELD, and
+# the suite requires the set of ambiguous fields to be exactly this one:
+# a new entry appearing is a failure, because the next one may not be
+# ausearch's fault.
+#
+# 1700000066.719:1487 a2 is an EXECVE argument that is a single space.
+# ausearch writes it as "a2= a3=..." and that is identical to the way it
+# writes an empty value.  The log itself is not ambiguous: the kernel
+# hex-encodes the argument as 20, which auditp reads back as one space.
+# There is nothing either side can do about it; ausearch's -i output is
+# not a round-trippable format and this is the record that proves it.
+1700000066.719:1487	0	a2

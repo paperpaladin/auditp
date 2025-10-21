@@ -1138,7 +1138,7 @@
 1700000077.953:1569	0	path	/opt/widget/share/table.bin
 1700000078.090:1570	0	exe	/opt/widget/libexec/bargen
 1700000078.090:1570	0	comm	qux-helper
-1700000078.501:1573	0	note	a type nothing names
+1700000078.501:1573	0	note	a-type-nothing-names
 1700000078.638:1574	0	name	/srv/data/with space.txt
 1700000078.775:1575	0	name	/srv/data/with\ttab.txt
 1700000078.912:1576	0	name	/srv/data/with\nnewline.txt

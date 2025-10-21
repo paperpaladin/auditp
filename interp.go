@@ -162,8 +162,61 @@ func (ip *Interp) FieldFlag(r *Record, f *Field) (string, string) {
 		return archText(raw), ip.claim("arch")
 	case f.Name == "syscall":
 		return ip.syscall(r, raw), ip.claim("syscall")
+	case f.Name == "proctitle":
+		return proctitleText(decodeEscaped(f)), ip.claim("proctitle")
+	case renderRefused[f.Name]:
+		return raw, ip.refuse(f.Name)
+	case escapedFields[f.Name]:
+		return escapeText(decodeEscaped(f)), ip.claim("escaped")
+	case isEscapedField(r, f):
+		return escapeText(decodeEscaped(f)), ip.claim("execve-arg")
+	case f.Sub != nil:
+		return ip.nested(r, f), ip.claim("nested")
 	}
 	return raw, ip.refuse(f.Name)
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// nested renders a single-quoted msg='...' with its inner fields
+// interpreted.  The separators, any prose before the first inner field and
+// the quotes themselves are the bytes that were in the log; only the
+// values change.  A reader that treats the value as one opaque string
+// disagrees with ausearch on every USER_CMD record, because the command
+// line inside it is hex.
+func (ip *Interp) nested(r *Record, f *Field) string {
+	var b strings.Builder
+	// SubPre and SubPost carry the quotes, because Unparse has to put the
+	// line back together byte for byte.  Value() strips them from every
+	// other encoding, so they come off here too and the two forms agree.
+	pre, post := f.SubPre, f.SubPost
+	if len(pre) > 0 && pre[0] == '\'' {
+		pre = pre[1:]
+	}
+	if n := len(post); n > 0 && post[n-1] == '\'' {
+		post = post[:n-1]
+	}
+	b.Write(pre)
+	for i := range f.Sub {
+		g := &f.Sub[i]
+		b.Write(g.Pre)
+		b.WriteString(g.Name)
+		b.WriteByte('=')
+		v, _ := ip.FieldFlag(r, g)
+		b.WriteString(v)
+	}
+	b.Write(post)
+	return b.String()
 }
 
 // id renders a uid or gid the way ausearch does: the login name, "unset"
@@ -259,4 +312,109 @@ func (ip *Interp) syscall(r *Record, raw string) string {
 		return name
 	}
 	return fmt.Sprintf("unknown-syscall(%d)", nr)
+}
+
+// escapedFields are the field names whose value the kernel hex-encodes
+// when it contains anything outside 0x21..0x7e, and which ausearch
+// therefore decodes.  The list is not a guess and not read out of
+// libaudit's source: t/escaped.py writes one record per (record type,
+// field name) pair with a value of 5A71, asks ausearch, and keeps the
+// pairs where Zq came back.  t/run.sh re-runs that probe and diffs it
+// against this table, so a name that libaudit starts or stops decoding
+// turns the suite red.
+//
+// a0..a3 are here for EXECVE only and are handled in FieldFlag: in a
+// SYSCALL record the same names are syscall arguments and a number.
+var escapedFields = map[string]bool{
+	"acct": true, "cmd": true, "comm": true, "cwd": true, "exe": true,
+	"data": true, "key": true, "name": true, "ocomm": true, "path": true,
+	"proctitle": true, "root_dir": true, "sw": true,
+}
+
+// renderRefused are escaped fields auditp decodes but will not render,
+// because ausearch renders them in a format of its own that auditp does
+// not implement.  TTY data is the only one: ausearch turns the keystrokes
+// into "ls",<ret>,"\000", naming the control characters.  Decoding and
+// rendering are separate questions and this is the field that shows why:
+// the bytes come back correctly and the presentation is refused.
+var renderRefused = map[string]bool{"data": true}
+
+// decodeField is the structural decode, with no rendering: the bytes the
+// kernel put in the field.  Hex is decoded for a field the kernel encodes,
+// quotes are removed, and nothing is escaped or truncated.  It is what the
+// ground-truth comparison reads.
+func decodeField(r *Record, f *Field) []byte {
+	if isEscapedField(r, f) {
+		return decodeEscaped(f)
+	}
+	return f.Value()
+}
+
+// isEscapedField is the one place the decode table is consulted, so that
+// the census, the renderer and the ground-truth dump cannot disagree about
+// what gets decoded.
+func isEscapedField(r *Record, f *Field) bool {
+	if escapedFields[f.Name] {
+		return true
+	}
+	// a0..aN in EXECVE are the argument strings.  In SYSCALL the same
+	// names are register values and a number.
+	return r.Type == "EXECVE" && len(f.Name) >= 2 && f.Name[0] == 'a' &&
+		isAllDigits(f.Name[1:])
+}
+
+// escapeText renders a decoded value the way ausearch does.  Measured, by
+// writing one record per byte value 0x00..0xff into a hex-encoded name=
+// and reading back what came out:
+//
+//	0x00         ends the string.  Not escaped, not skipped: truncated.
+//	0x01..0x1f   printed as a backslash and three octal digits.
+//	0x20..0xff   printed as themselves, including 0x7f and everything
+//	             above 0x7f, so a value that is not valid UTF-8 comes
+//	             out as the bytes that were in the log.
+//
+// All 256 were checked, not a sample: the interesting boundary turned out
+// to be at 0x20 and at 0x7f, and only one of those is where a C
+// programmer would have guessed.
+func escapeText(b []byte) string {
+	var out []byte
+	for _, c := range b {
+		switch {
+		case c == 0:
+			return string(out)
+		case c < 0x20:
+			out = append(out, '\\', '0'+(c>>6)&7, '0'+(c>>3)&7, '0'+c&7)
+		default:
+			out = append(out, c)
+		}
+	}
+	return string(out)
+}
+
+// decodeEscaped is the escaped-field path: hex-decode if the value is
+// hex-shaped, then render.  A value that is not hex-shaped is already the
+// text, and gets the same rendering, because a quoted value holding a tab
+// is escaped by ausearch too even though the kernel would never write one.
+func decodeEscaped(f *Field) []byte {
+	if f.HexShaped() {
+		return f.HexDecode()
+	}
+	return f.Value()
+}
+
+// proctitleText is the one escaped field where a NUL does not end the
+// string.  The kernel stores argv with NUL between the arguments, and
+// ausearch turns each into a space, so the value is a command line.  Every
+// other field truncates at the first NUL; cmd= in a USER_CMD record was
+// checked specifically, because it holds a command line too and does NOT
+// do this.
+func proctitleText(b []byte) string {
+	c := make([]byte, len(b))
+	copy(c, b)
+	for i := range c {
+		if c[i] == 0 {
+			c[i] = ' '
+		}
+	}
+	return escapeText(c)
 }

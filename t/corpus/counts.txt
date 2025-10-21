@@ -13,7 +13,7 @@ edge-text 12
 errno-exit 26
 event-openat 60
 execve 4
-hex-encoded 101
+hex-encoded 100
 kill-signal 13
 mmap-prot 25
 multi-record-events 125
@@ -26,7 +26,7 @@ path-items 89
 path-mode 60
 proctitle 125
 prose-prefix 12
-quoted 1071
+quoted 1072
 records 867
 seccomp 89
 sockaddr 5

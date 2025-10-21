@@ -73,8 +73,26 @@ def scan_value(body, i):
     if body[i] == "'":
         j = body.find("'", i + 1)
         return body[i:j + 1] if j >= 0 else body[i:]
-    j = body.find(" ", i)
-    return body[i:] if j < 0 else body[i:j]
+    # A bare value runs to the next " NAME=" boundary, NOT to the next
+    # space.  ausearch prints a decoded proctitle as
+    # proctitle=/opt/widget/bin/widgetd -c /etc/widget.conf
+    # with no quoting at all, so stopping at the first space loses every
+    # argument after the first: 62 proctitle fields, 16 names and 10
+    # commands read as truncated before this was fixed.
+    #
+    # The rule cannot be made exact, and that is a property of ausearch's
+    # output rather than of this parser.  A decoded value holding " x=y"
+    # is indistinguishable from the end of one field and the start of
+    # another.  The corpus avoids that case deliberately and the README
+    # says so.
+    j = i
+    while True:
+        j = body.find(" ", j)
+        if j < 0:
+            return body[i:]
+        if field_at(body, j + 1):
+            return body[i:j]
+        j += 1
 
 
 def split_fields(body):

@@ -24,21 +24,31 @@ type Stats struct {
 	Enc         map[Encoding]int
 	Types       map[string]int
 	Names       map[string]int
-	Interp      map[string]int // interpreter name -> fields it translated
-	Refused     map[string]int // field name -> times no interpreter claimed it
+	// EscapedPairs is "TYPE FIELD" for every pair in the input whose
+	// value auditp hex-decodes.  The probe in t/escaped.py asks ausearch
+	// the same question of the same pairs and the suite diffs the two,
+	// so the decode table cannot drift from libaudit's unnoticed.
+	EscapedPairs map[string]int
+	Interp       map[string]int // interpreter name -> fields it translated
+	Refused      map[string]int // field name -> times no interpreter claimed it
 }
 
 func NewStats() *Stats {
 	return &Stats{
-		Enc:     map[Encoding]int{},
-		Types:   map[string]int{},
-		Names:   map[string]int{},
-		Interp:  map[string]int{},
-		Refused: map[string]int{},
+		Enc:          map[Encoding]int{},
+		Types:        map[string]int{},
+		Names:        map[string]int{},
+		EscapedPairs: map[string]int{},
+		Interp:       map[string]int{},
+		Refused:      map[string]int{},
 	}
 }
 
 func (s *Stats) record(r *Record) {
+	s.recordFields(r)
+}
+
+func (s *Stats) recordFields(r *Record) {
 	s.Records++
 	s.Types[r.Type]++
 	if len(r.Prefix) > 0 && string(r.Prefix) != " " {
@@ -56,11 +66,17 @@ func (s *Stats) record(r *Record) {
 			s.HexShaped++
 		}
 		s.Names[f.Name]++
+		if isEscapedField(r, f) {
+			s.EscapedPairs[r.Type+" "+f.Name]++
+		}
 		if seen[f.Name] {
 			s.DupNames++
 		}
 		seen[f.Name] = true
 		for j := range f.Sub {
+			if isEscapedField(r, &f.Sub[j]) {
+				s.EscapedPairs[r.Type+" "+f.Sub[j].Name]++
+			}
 			s.SubFields++
 			s.Enc[f.Sub[j].Enc]++
 			if f.Sub[j].HexShaped() {

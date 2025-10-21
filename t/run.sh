@@ -165,17 +165,19 @@ fi
 ./auditp -o flat -i "$CORPUS" > "$T/oursi.flat" || no "auditp -i -o flat exited non-zero"
 python3 t/oracle.py --interpret "$CORPUS" > "$T/orci.flat" 2>"$T/orci.err"
 if [ -s "$T/orci.flat" ]; then
-	python3 t/compare.py --ours "$T/oursi.flat" --oracle "$T/orci.flat" \
+	python3 t/compare.py --known t/ambiguous.txt \
+		--ours "$T/oursi.flat" --oracle "$T/orci.flat" \
 		> "$T/cmpi.txt" 2>&1
 	rc=$?
 	num() { awk -v k="$1" '$1==k && $2 ~ /^[0-9]+$/ && NF==2 {print $2; exit}' "$T/cmpi.txt"; }
 	ni=$(awk '$1=="compared"{print $2; exit}' "$T/cmpi.txt")
 	ai=$(num AGREE-i); ap=$(num AGREE-p); rf=$(num REFUSED)
 	w=$(num WRONG); mo=$(num MISSING-ours); mc=$(num MISSING-oracle)
+	am=$(num AMBIGUOUS); au=$(num AMBIGUOUS-unmet)
 	if [ "$rc" -eq 0 ]; then
-		ok "interpreted: $ni fields, $ai translated and identical, $ap passed through and identical, $rf refused, 0 wrong"
+		ok "interpreted: $ni fields, $ai translated and identical, $ap passed through and identical, $rf refused, $am ambiguous, 0 wrong"
 	else
-		no "interpreted: $w wrong, $mo missing from us, $mc missing from the oracle"
+		no "interpreted: $w wrong, $mo missing from us, $mc missing from the oracle, $au stale exemptions"
 		sed -n '1,40p' "$T/cmpi.txt"
 	fi
 	# A floor on the translations, because 0 wrong is also what a build
@@ -186,6 +188,53 @@ if [ -s "$T/orci.flat" ]; then
 	else no "refusals grew to $rf, ceiling is 3000"; fi
 else
 	no "t/oracle.py --interpret produced nothing: $(head -2 "$T/orci.err")"
+fi
+
+# --- 7. the decoder against the bytes that were encoded ---------------
+# The only comparison here that does not involve ausearch.  Agreeing with
+# a second decoder and recovering what was encoded are different claims,
+# and the hex encoding exists for exactly the bytes two decoders are most
+# likely to mangle the same way.
+./auditp -o decode "$CORPUS" > "$T/dec.tsv" || no "auditp -o decode exited non-zero"
+python3 t/truth.py --decoded "$T/dec.tsv" --truth "$TRUTH" > "$T/truth.txt" 2>&1
+rc=$?
+tn() { awk -v k="$1" '$1==k{print $2; exit}' "$T/truth.txt"; }
+if [ $rc -eq 0 ]; then
+	ok "decoder: $(tn agree) of $(tn truth-rows) values are the bytes the generator encoded"
+else
+	no "decoder: $(tn differ) differ, $(tn missing) missing of $(tn truth-rows)"
+	head -12 "$T/truth.txt"
+fi
+floor "ground-truth values compared" 1000 "$(tn truth-rows)"
+
+# --- 8. the hex-decode table, against ausearch's behaviour ------------
+# Which field names the kernel hex-encodes is a table inside libaudit.
+# t/escaped.py puts a hex value into every (record type, field name) pair
+# the corpus contains and reads back which ones ausearch decoded.  This is
+# derived from the oracle rather than from an independent source, which
+# the README says; what it buys is that the compiled-in table cannot go
+# stale without this turning red.
+python3 t/escaped.py "$CORPUS" > "$T/esc.probe" 2>"$T/esc.err"
+if [ -s "$T/esc.probe" ]; then
+	./auditp -o census "$CORPUS" | sed -n 's/^escaped-pair //p' | sort > "$T/esc.ours"
+	sort "$T/esc.probe" > "$T/esc.theirs"
+	np=$(wc -l < "$T/esc.theirs")
+	if cmp -s "$T/esc.ours" "$T/esc.theirs"; then
+		ok "hex-decode table: $np (type, field) pairs, identical to what ausearch decodes"
+	else
+		no "hex-decode table differs from ausearch by $(diff "$T/esc.ours" "$T/esc.theirs" | grep -c '^[<>]') pairs"
+		diff "$T/esc.ours" "$T/esc.theirs" | head -10
+	fi
+	floor "(type, field) pairs that hex-decode" 70 "$np"
+	nq=$(sed -n 's/.*: \([0-9]*\) pairs, \([0-9]*\) answered.*/\1 \2/p' "$T/esc.err")
+	set -- $nq
+	if [ "${1:-0}" -gt 0 ] && [ "${1:-0}" -eq "${2:-0}" ]; then
+		ok "hex-decode probe: ausearch answered all $1 pairs it was asked about"
+	else
+		no "hex-decode probe: ausearch answered ${2:-0} of ${1:-0} pairs, so the rest were not tested"
+	fi
+else
+	no "t/escaped.py produced nothing: $(head -2 "$T/esc.err")"
 fi
 
 echo

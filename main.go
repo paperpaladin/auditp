@@ -24,6 +24,8 @@ const usage = `usage: auditp [-i] [-o text|json|flat|census|unparse] [-strict] F
                census   what the input contained, per construct
                unparse  the parsed records written back out; byte for byte
                         identical to the input if nothing was lost
+               decode   the decoded bytes of every field, backslash
+                        escaped, for comparison against a known value
   -strict    exit 1 on a line that cannot be parsed, instead of counting it
 
 exit 0 clean, 1 unreadable input or (with -strict) a malformed line,
@@ -45,7 +47,7 @@ func main() {
 		os.Exit(2)
 	}
 	switch *form {
-	case "text", "json", "flat", "census", "unparse":
+	case "text", "json", "flat", "census", "unparse", "decode":
 	default:
 		fmt.Fprintf(os.Stderr, "auditp: unknown output form %q\n", *form)
 		os.Exit(2)
@@ -69,6 +71,8 @@ func main() {
 		writeFlat(out, events, ip)
 	case "unparse":
 		writeUnparse(out, events)
+	case "decode":
+		writeDecode(out, events)
 	case "census":
 		if *interp {
 			// Fire every interpreter so the census can report what each

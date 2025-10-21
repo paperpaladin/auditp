@@ -59,6 +59,9 @@ def main():
     ap.add_argument("--ours", required=True)
     ap.add_argument("--oracle", required=True)
     ap.add_argument("--show", type=int, default=12)
+    ap.add_argument("--known", help="file of fields where ausearch's own "
+                    "output is ambiguous; counted apart from WRONG and "
+                    "required by the suite to be exactly this set")
     ap.add_argument("--no-refusals", action="store_true",
                     help="treat a refusal as a failure.  Used for the "
                          "uninterpreted comparison, where there is nothing "
@@ -71,7 +74,19 @@ def main():
     ours, oorder = load(args.ours, True)
     orc, _ = load(args.oracle, False)
 
-    agree_i = agree_p = refused = wrong = 0
+    known = set()
+    if args.known:
+        with open(args.known) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line or line.startswith("#"):
+                    continue
+                p = line.split("\t")
+                if len(p) == 3:
+                    known.add(tuple(p))
+
+    agree_i = agree_p = refused = wrong = ambiguous = 0
+    seen_known = set()
     missing_ours = missing_orc = 0
     by_refused = collections.Counter()
     by_wrong = collections.Counter()
@@ -92,6 +107,9 @@ def main():
                 agree_i += 1
             else:
                 agree_p += 1
+        elif k in known:
+            ambiguous += 1
+            seen_known.add(k)
         elif flag == "i":
             wrong += 1
             by_wrong[k[2]] += 1
@@ -109,12 +127,14 @@ def main():
             if len(examples) < args.show:
                 examples.append(("MISSING-OURS", k, "<absent>", orc[k][1]))
 
-    total = agree_i + agree_p + refused + wrong
+    total = agree_i + agree_p + refused + wrong + ambiguous
     print("compared        %d fields, %d distinct names" % (total, len(names)))
     print("AGREE-i         %d" % agree_i)
     print("AGREE-p         %d" % agree_p)
     print("REFUSED         %d" % refused)
     print("WRONG           %d" % wrong)
+    print("AMBIGUOUS       %d" % ambiguous)
+    print("AMBIGUOUS-unmet %d" % len(known - seen_known))
     print("MISSING-ours    %d" % missing_ours)
     print("MISSING-oracle  %d" % missing_orc)
     if by_refused:
@@ -136,6 +156,10 @@ def main():
     bad = wrong + missing_ours + missing_orc
     if args.no_refusals:
         bad += refused
+    # An entry in the known-ambiguous file that did not fire is a stale
+    # exemption, and a stale exemption is how a real failure gets excused
+    # later.  It fails too.
+    bad += len(known - seen_known)
     if total == 0:
         print("NOTHING COMPARED")
         return 1

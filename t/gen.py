@@ -560,7 +560,11 @@ def zoo_fields(g, typ):
                 g.bare("ses", UNSET), ("subj", CTX[1], None),
                 ("msg", "'" + inner + "'", None)]
     if typ == "UNKNOWN[9999]":
-        return [g.bare("mystery", 1), g.text("note", "a type nothing names")]
+        # No space in the value: a field name ausearch does not know is a
+        # field it does not hex-decode, so a hex value here would be a
+        # construct nothing can read back and the ground-truth file would
+        # claim a decoding that is not available to anyone.
+        return [g.bare("mystery", 1), g.text("note", "a-type-nothing-names")]
     # the systemd-shaped ones
     inner = ("unit=%s comm=\"systemd\" exe=\"/usr/lib/systemd/systemd\" "
              "hostname=? addr=? terminal=? res=success" % r.choice(UNITS))
