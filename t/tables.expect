@@ -1,0 +1,24 @@
+syscall-x86_64 374
+syscall-x86_64-two-source-agree 372
+syscall-i386 452
+syscall-i386-two-source-agree 450
+audit-types 193
+audit-types-in-kernel-header 73
+audit-types-two-source-agree 73
+arch 11
+arch-two-source-agree 10
+errno 131
+errno-two-source-agree 128
+signal 33
+signal-two-source-agree 31
+problems 0
+notes 9
+  ALIAS arch 40000028: header computes arm, ausearch says armeb
+  ALIAS errno 35: header says EDEADLK, python says EDEADLOCK
+  ALIAS errno 95: header says EOPNOTSUPP, python says ENOTSUP
+  ALIAS i386 syscall 283: ausyscall says sys_kexec_load, header says kexec_load
+  ALIAS i386 syscall 423: ausyscall says sched_rr_get_interval64, header says sched_rr_get_interval_time64
+  ALIAS x86_64 syscall 17: ausyscall says pread, header says pread64
+  ALIAS x86_64 syscall 18: ausyscall says pwrite, header says pwrite64
+  COUNT 42 of 53 AUDIT_ARCH_* values are unknown to ausearch and render as unknown-elf-type(hex)
+  ONESIDED x86_64 syscall 335 (uretprobe) is in the header and not ausyscall

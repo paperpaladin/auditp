@@ -27,6 +27,7 @@ and both asserted by the suite:
 
 import argparse
 import calendar
+import io
 import os
 import re
 import subprocess
@@ -58,6 +59,14 @@ def field_at(body, i):
 def scan_value(body, i):
     if i >= len(body) or body[i] == " ":
         return ""
+    if body[i] == "{":
+        # ausearch renders a decoded sockaddr as a brace-delimited group of
+        # its own invented sub-fields: saddr={ saddr_fam=inet laddr=... }.
+        # Without this the group's contents are read as record fields and
+        # turn up as three fields auditp never emitted, which read as a
+        # parser defect and are a rendering convention.
+        j = body.find("}", i)
+        return body[i:j + 1] if j >= 0 else body[i:]
     if body[i] == '"':
         j = body.find('"', i + 1)
         return body[i:j + 1] if j >= 0 else body[i:]
@@ -144,7 +153,12 @@ def main():
             continue
         cur.append(line)
 
-    out = sys.stdout
+    # Binary stdout with surrogateescape: a decoded value can hold any
+    # byte, and writing through the default UTF-8 encoder raised on the
+    # first one that was not valid UTF-8 and silently truncated the run at
+    # 120 fields short.  The exception went to a stderr nobody was reading.
+    out = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8",
+                           errors="surrogateescape", newline="")
     nrec = 0
     for recs in events:
         n = len(recs)
@@ -181,6 +195,7 @@ def main():
             nrec += 1
             for k, i, name, val in rows_for_record(typ, key, body, idx, stamp):
                 out.write("%s\t%d\t%s\t%s\n" % (k, i, name, val))
+    out.flush()
     sys.stderr.write("oracle: %d events, %d records\n" % (len(events), nrec))
     return 0 if nrec else 1
 

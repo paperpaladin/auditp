@@ -63,8 +63,8 @@ fi
 # a construct with code behind it: if the count is zero that code is
 # untested however many other fields agree.
 floor() { # name  minimum  actual
-	if [ "$3" -ge "$2" ]; then ok "corpus has $3 $1 (floor $2)"
-	else no "corpus has only $3 $1, floor is $2: that construct is untested"; fi
+	if [ "$3" -ge "$2" ]; then ok "$3 $1 (floor $2)"
+	else no "only $3 $1, floor is $2: that is untested"; fi
 }
 cnt() { awk -v k="$1" '$1==k{print $2; found=1} END{if(!found) print 0}' t/corpus/counts.txt; }
 
@@ -124,6 +124,68 @@ if [ -s "$T/orc.flat" ]; then
 	                       || no "raw comparison covered only ${nn:-0} field names"
 else
 	no "t/oracle.py produced nothing: $(head -2 "$T/orc.err")"
+fi
+
+# --- 5. the tables, against the two sources each was built from --------
+# t/tables.py reads ausyscall AND the uapi headers, ausearch AND
+# linux/audit.h, and fails if they disagree about which number is which
+# call.  A table checked against the tool it was copied from is checked
+# against nothing.
+skip=0
+for src in /usr/bin/ausyscall /usr/lib/linux/uapi/x86/asm/unistd_64.h \
+           /usr/lib/linux/uapi/x86/asm/unistd_32.h /usr/include/linux/audit.h \
+           /usr/include/linux/elf-em.h /usr/include/asm-generic/errno.h; do
+	[ -e "$src" ] || { echo "SKIP table check: $src is missing"; skip=1; }
+done
+if [ "$skip" -eq 0 ]; then
+	python3 t/tables.py --out "$T/tables.go" --report "$T/tables.rep" 2>"$T/tables.err"
+	rc=$?
+	if [ $rc -ne 0 ]; then
+		no "t/tables.py exited $rc: $(grep -v "^ " "$T/tables.rep" | tail -3)"
+		sed -n "/^problems/,\$p" "$T/tables.rep" | head -12
+	else
+		cmp -s "$T/tables.go" tables.go && ok "tables.go matches what its sources say today" \
+		                               || no "tables.go is stale: regenerate with t/tables.py"
+		cmp -s "$T/tables.rep" t/tables.expect && ok "the known source disagreements are exactly the recorded ones" \
+		                               || { no "the set of source disagreements changed"; diff t/tables.expect "$T/tables.rep" | head -12; }
+	fi
+	tnum() { awk -v k="$1" '$1==k{print $2; exit}' "$T/tables.rep"; }
+	floor "x86_64 syscalls agreed by two sources" 370 "$(tnum syscall-x86_64-two-source-agree)"
+	floor "i386 syscalls agreed by two sources"   448 "$(tnum syscall-i386-two-source-agree)"
+	floor "audit types agreed by two sources"      70 "$(tnum audit-types-two-source-agree)"
+	floor "errno names agreed by two sources"     125 "$(tnum errno-two-source-agree)"
+	floor "signal names agreed by two sources"     30 "$(tnum signal-two-source-agree)"
+	floor "arch names agreed by two sources"       10 "$(tnum arch-two-source-agree)"
+fi
+
+# --- 6. the oracle again, interpreted ---------------------------------
+# Here the refusal channel is live.  WRONG is the only failure: a field
+# auditp declined to translate and ausearch did is a gap, counted and
+# named, and a field auditp translated differently is a defect.
+./auditp -o flat -i "$CORPUS" > "$T/oursi.flat" || no "auditp -i -o flat exited non-zero"
+python3 t/oracle.py --interpret "$CORPUS" > "$T/orci.flat" 2>"$T/orci.err"
+if [ -s "$T/orci.flat" ]; then
+	python3 t/compare.py --ours "$T/oursi.flat" --oracle "$T/orci.flat" \
+		> "$T/cmpi.txt" 2>&1
+	rc=$?
+	num() { awk -v k="$1" '$1==k && $2 ~ /^[0-9]+$/ && NF==2 {print $2; exit}' "$T/cmpi.txt"; }
+	ni=$(awk '$1=="compared"{print $2; exit}' "$T/cmpi.txt")
+	ai=$(num AGREE-i); ap=$(num AGREE-p); rf=$(num REFUSED)
+	w=$(num WRONG); mo=$(num MISSING-ours); mc=$(num MISSING-oracle)
+	if [ "$rc" -eq 0 ]; then
+		ok "interpreted: $ni fields, $ai translated and identical, $ap passed through and identical, $rf refused, 0 wrong"
+	else
+		no "interpreted: $w wrong, $mo missing from us, $mc missing from the oracle"
+		sed -n '1,40p' "$T/cmpi.txt"
+	fi
+	# A floor on the translations, because 0 wrong is also what a build
+	# with every interpreter deleted would report.
+	floor "fields translated and agreeing" 5000 "${ai:-0}"
+	# And a ceiling on the refusals, so the gap cannot quietly grow.
+	if [ "${rf:-99999}" -le 3000 ]; then ok "refusals: $rf (ceiling 3000)"
+	else no "refusals grew to $rf, ceiling is 3000"; fi
+else
+	no "t/oracle.py --interpret produced nothing: $(head -2 "$T/orci.err")"
 fi
 
 echo
