@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Interp turns a decoded field value into the thing it means.  Without -i
@@ -113,8 +114,16 @@ func (ip *Interp) TypeNameFlag(r *Record) (string, string) {
 	return r.Type, ip.claim("@type")
 }
 
+// Time renders the record timestamp.  ausearch -i prints it in LOCAL
+// time as MM/DD/YYYY HH:MM:SS.mmm, so the comparison runs under TZ=UTC
+// where there is no ambiguous hour to map back through.
 func (ip *Interp) Time(r *Record) (string, string) {
-	return fmt.Sprintf("%d.%03d", r.Secs, r.Millis), "-"
+	if !ip.on {
+		return fmt.Sprintf("%d.%03d", r.Secs, r.Millis), "-"
+	}
+	t := time.Unix(r.Secs, 0)
+	return fmt.Sprintf("%s.%03d", t.Format("01/02/2006 15:04:05"), r.Millis),
+		ip.claim("@time")
 }
 
 func (ip *Interp) Field(r *Record, f *Field) string {
@@ -164,6 +173,26 @@ func (ip *Interp) FieldFlag(r *Record, f *Field) (string, string) {
 		return ip.syscall(r, raw), ip.claim("syscall")
 	case f.Name == "proctitle":
 		return proctitleText(decodeEscaped(f)), ip.claim("proctitle")
+	case f.Name == "mode" && r.Type != "MQ_OPEN":
+		return modeText(raw), ip.claim("mode")
+	case f.Name == "sig":
+		return sigText(raw), ip.claim("sig")
+	case f.Name == "res":
+		return resText(raw), ip.claim("res")
+	case f.Name == "exit":
+		return exitText(raw), ip.claim("exit")
+	case capFields[f.Name]:
+		return capText(raw), ip.claim("cap")
+	case f.Name == "code" && r.Type == "SECCOMP":
+		return seccompText(raw), ip.claim("seccomp-code")
+	case f.Name == "family" && r.Type == "NETFILTER_CFG":
+		return familyText(raw), ip.claim("family")
+	case f.Name == "list":
+		return listText(raw), ip.claim("list")
+	case f.Name == "oflag":
+		return flagsText(raw, openFlagName, "O_RDONLY", true), ip.claim("oflag")
+	case f.Name == "flags" && r.Type == "MMAP":
+		return mapFlagsText(raw), ip.claim("mapflags")
 	case renderRefused[f.Name]:
 		return raw, ip.refuse(f.Name)
 	case escapedFields[f.Name]:
@@ -236,6 +265,16 @@ func (ip *Interp) id(raw string, tab map[uint64]string) string {
 		return name
 	}
 	return fmt.Sprintf("unknown(%d)", n)
+}
+
+// parseOctal is strtoul(s, NULL, 8): leading octal digits, zero if there
+// are none, and whatever follows is ignored.
+func parseOctal(s string) uint64 {
+	var n uint64
+	for i := 0; i < len(s) && s[i] >= '0' && s[i] <= '7'; i++ {
+		n = n*8 + uint64(s[i]-'0')
+	}
+	return n
 }
 
 // parseU reads a decimal unsigned the way ausearch's strtoul does, which
@@ -339,6 +378,16 @@ var escapedFields = map[string]bool{
 // the bytes come back correctly and the presentation is refused.
 var renderRefused = map[string]bool{"data": true}
 
+// capFields are the capability BITMASKS.  cap_fe is a one-bit effective
+// flag and cap_fver a version number, both of which share the prefix and
+// neither of which ausearch translates.  A prefix test on cap_ was wrong
+// for 149 fields and right for 151, which is the sort of margin a prefix
+// test gets you.
+var capFields = map[string]bool{
+	"cap_fp": true, "cap_fi": true,
+	"cap_pi": true, "cap_pp": true, "cap_pe": true, "cap_pa": true,
+}
+
 // decodeField is the structural decode, with no rendering: the bytes the
 // kernel put in the field.  Hex is decoded for a field the kernel encodes,
 // quotes are removed, and nothing is escaped or truncated.  It is what the
@@ -417,4 +466,227 @@ func proctitleText(b []byte) string {
 		}
 	}
 	return escapeText(c)
+}
+
+// --- the small enumerated fields -------------------------------------
+//
+// Each of these was established by asking ausearch, not by reading
+// libaudit, and each table is cross-checked bit by bit or value by value
+// in t/tables.py.  Where a rendering looks odd it is because ausearch's
+// is odd; the two that are not copied are in t/known-diff.txt.
+
+// modeText renders a st_mode.  file,644 / dir,755 / file,suid,755.  The
+// file-type nibble has a name for the seven types that have one and is
+// printed as three octal digits otherwise, which is why a mode of 0 comes
+// out as 000,000 and not as an error.
+func modeText(raw string) string {
+	// strtoul semantics, base 8, and a value with no leading octal digits
+	// is zero rather than an error.  LANDLOCK_DOMAIN carries mode=enforcing
+	// and ausearch prints 000,000 for it: the field name decides the
+	// interpreter, not the value, and libaudit does not look before it
+	// parses.  Returning the string unchanged there was wrong once in
+	// 14043 fields.
+	n := parseOctal(raw)
+	var b strings.Builder
+	t := (n >> 12) & 0xF
+	if name, ok := fileTypeName[t]; ok {
+		b.WriteString(name)
+	} else {
+		fmt.Fprintf(&b, "%03o", t)
+	}
+	if n&04000 != 0 {
+		b.WriteString(",suid")
+	}
+	if n&02000 != 0 {
+		b.WriteString(",sgid")
+	}
+	if n&01000 != 0 {
+		b.WriteString(",sticky")
+	}
+	fmt.Fprintf(&b, ",%03o", n&0777)
+	return b.String()
+}
+
+var fileTypeName = map[uint64]string{
+	001: "fifo", 002: "character", 004: "dir", 006: "block",
+	010: "file", 012: "link", 014: "socket",
+}
+
+// sigText.  Signal 0 is SIG0, which is not a name anything but libaudit
+// uses, and 32 upwards are unknown-signal(N) because libaudit's table
+// stops at 31 while the kernel's does not.
+func sigText(raw string) string {
+	n, ok := parseU(raw)
+	if !ok {
+		return raw
+	}
+	if name, ok := signalName[int(n)]; ok {
+		return name
+	}
+	return fmt.Sprintf("unknown-signal(%d)", n)
+}
+
+// resText.  0 is no, 1 is yes, any other number is unset, and a value
+// that is not a number at all is left alone, which is how res=success
+// survives.
+func resText(raw string) string {
+	n, ok := parseU(raw)
+	if !ok {
+		return raw
+	}
+	switch n {
+	case 0:
+		return "no"
+	case 1:
+		return "yes"
+	}
+	return "unset"
+}
+
+// exitText.  A negative exit is an errno: EACCES(Permission denied).  The
+// words in the brackets are glibc's strerror under LC_ALL=C, baked into
+// the table, because Go's own Errno.Error() lower-cases the first letter
+// and would disagree on every one of the 131.
+func exitText(raw string) string {
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n >= 0 {
+		return raw
+	}
+	e := -n
+	name := errnoName[int(e)]
+	if name == "" {
+		name = "(null)"
+	}
+	text := errnoText[int(e)]
+	if text == "" {
+		text = fmt.Sprintf("Unknown error %d", e)
+	}
+	return name + "(" + text + ")"
+}
+
+// capText renders a capability bitmask as the names of its set bits, or
+// "none" for zero.  The value is hex and has no 0x.
+func capText(raw string) string {
+	n, err := strconv.ParseUint(raw, 16, 64)
+	if err != nil {
+		return raw
+	}
+	if n == 0 {
+		return "none"
+	}
+	var parts []string
+	for b := 0; b < 64; b++ {
+		if n&(1<<uint(b)) == 0 {
+			continue
+		}
+		if name, ok := capName[b]; ok {
+			parts = append(parts, name)
+		}
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
+}
+
+// seccompText.  The action is the top half of the return value: the low
+// 16 bits are data, and SECCOMP_RET_KILL_PROCESS is 0x80000000, which
+// masks to zero, which is why ausearch calls it kill-thread.
+func seccompText(raw string) string {
+	n, err := strconv.ParseUint(strings.TrimPrefix(raw, "0x"), 16, 64)
+	if err != nil {
+		return raw
+	}
+	a := n & 0x7FFF0000
+	if name, ok := seccompCode[int(a)]; ok {
+		return name
+	}
+	return fmt.Sprintf("unknown-seccomp-code(0x%08x)", a)
+}
+
+// familyText is the NETFILTER protocol family, not the socket address
+// family.  family=1 is inet here and AF_UNIX in sys/socket.h, and using
+// the wrong table gives an answer for every value.
+func familyText(raw string) string {
+	n, ok := parseU(raw)
+	if !ok {
+		return raw
+	}
+	if name, ok := nfprotoName[int(n)]; ok {
+		return name
+	}
+	return fmt.Sprintf("unknown-netfilter-protocol(%d)", n)
+}
+
+func listText(raw string) string {
+	n, ok := parseU(raw)
+	if !ok {
+		return raw
+	}
+	if name, ok := filterListName[int(n)]; ok {
+		return name
+	}
+	return fmt.Sprintf("unknown-list(%d)", n)
+}
+
+// mapFlagsText renders mmap flags.  MAP_FILE is the name of the absence
+// of MAP_SHARED and MAP_PRIVATE rather than a bit of its own, so it is
+// prepended when the low two bits are clear and omitted otherwise:
+// 0x30 is MAP_FILE|MAP_FIXED|MAP_ANONYMOUS and 0x12 is
+// MAP_PRIVATE|MAP_FIXED.  Worked out by asking ausearch for nine values
+// including the ones with no bits and with an unnamed bit, because a
+// table of single bits does not tell you this.
+func mapFlagsText(raw string) string {
+	n, err := strconv.ParseUint(strings.TrimPrefix(raw, "0x"), 16, 64)
+	if err != nil {
+		return raw
+	}
+	var parts []string
+	if n&3 == 0 {
+		parts = append(parts, "MAP_FILE")
+	}
+	for b := 0; b < 64; b++ {
+		bit := uint64(1) << uint(b)
+		if n&bit == 0 {
+			continue
+		}
+		if name, ok := mapFlagName[int(bit)]; ok {
+			parts = append(parts, name)
+		}
+	}
+	return strings.Join(parts, "|")
+}
+
+// flagsText renders a bit set as base|name|name.  ausearch always starts
+// the list with the zero-valued base, O_RDONLY for open flags and
+// MAP_FILE for mmap, even when other bits are set, and the access mode of
+// an open flag word is the low two bits rather than a bit each.
+func flagsText(raw string, tab map[int]string, base string, accmode bool) string {
+	n, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimPrefix(raw,
+		"0x"), "0X"), 16, 64)
+	if err != nil {
+		return raw
+	}
+	parts := []string{base}
+	if accmode {
+		switch n & 3 {
+		case 1:
+			parts = []string{"O_WRONLY"}
+		case 2:
+			parts = []string{"O_RDWR"}
+		case 3:
+			parts = []string{"O_ACCMODE"}
+		}
+		n &^= 3
+	}
+	for b := 0; b < 64; b++ {
+		bit := uint64(1) << uint(b)
+		if n&bit == 0 {
+			continue
+		}
+		if name, ok := tab[int(bit)]; ok {
+			parts = append(parts, name)
+		}
+	}
+	return strings.Join(parts, "|")
 }

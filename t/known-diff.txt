@@ -1,0 +1,27 @@
+# Fields where auditp's output is deliberately not ausearch's.  Two kinds,
+# and each line is KEY <TAB> RECORD-INDEX <TAB> FIELD.  The suite requires
+# the set to be exactly the one listed here: a new entry is a failure,
+# because the next difference may not be one of these two kinds, and an
+# entry that stops firing is a failure too, because a stale exemption is
+# how a real defect gets excused later.
+#
+# 1. ausearch's own output cannot be parsed back to the value it printed.
+#
+# 1700000067.130:1490 a2 is an EXECVE argument that is a single space.
+# ausearch writes it as "a2= a3=..." and that is identical to the way it
+# writes an empty value.  The log itself is not ambiguous: the kernel
+# hex-encodes the argument as 20 and auditp reads back one space.  There
+# is nothing either side can do about it; ausearch's -i output is not a
+# round-trippable format and this is the record that proves it.
+1700000067.130:1490	0	a2
+#
+# 2. ausearch is wrong and auditp is not.
+#
+# Signal 30 is SIGPWR.  ausearch 4.0.2 prints IGPWR, with the S missing.
+# Both of auditp's sources say SIGPWR: asm-generic/signal.h and Python's
+# signal module.  Signals 29 and 31 either side of it come out as SIGIO
+# and SIGSYS, so it is one entry and not a systematic offset.  auditp
+# prints SIGPWR and takes the disagreement, because copying a defect into
+# a second implementation is how it becomes the format.  Found by the
+# two-source table check, which is the only thing here that could have.
+1700000075.076:1548	0	sig

@@ -249,7 +249,12 @@ MODES = ["0100644", "0100755", "040755", "0120777", "0140777", "010644",
          "060660", "020666", "0104755", "0102644", "0101644", "0100000"]
 ERRNOS = [1, 2, 3, 4, 5, 9, 11, 12, 13, 14, 17, 20, 21, 22, 24, 28, 32,
           36, 38, 39, 40, 95, 98, 110, 111, 115]
-SIGNALS = [1, 2, 3, 4, 6, 8, 9, 11, 13, 15, 17, 19, 31]
+# 30 is here on purpose: ausearch 4.0.2 renders it IGPWR, with the S
+# missing, and 29 and 31 either side of it are correct.  See
+# t/known-diff.txt.  32 is here because libaudit's table stops at 31 and
+# the kernel's does not, so it is the boundary where ausearch starts
+# printing unknown-signal.
+SIGNALS = [1, 2, 3, 4, 6, 8, 9, 11, 13, 15, 17, 19, 29, 30, 31, 32]
 FAMILIES = [1, 2, 10, 16, 17]
 
 
@@ -618,6 +623,57 @@ def build_edges(g):
         w, b = enc_text(raw)
         g.count("hex-encoded" if w[0] != '"' else "quoted")
         g.event([("PROCTITLE", [("proctitle", w, b)])])
+
+    # The hex-shape boundary, which is where the format is genuinely
+    # ambiguous.  Each of these is written into the corpus as a literal
+    # bare value, not through enc_text, because the point is what a
+    # READER does with bytes that may or may not be an encoding.
+    #   abcdef   lower case, and the kernel writes upper: decoded anyway
+    #   4142434  an odd number of digits: decoded, last nibble shifted up
+    #   12       two digits: the byte 0x12, not the filename 12
+    #   4        one digit: the filename 4, not half a byte
+    #   zz       not hex at all
+    for lit, why in [("abcdef", "lower case"), ("4142434", "odd length"),
+                     ("12", "two digits is a byte"),
+                     ("4", "one digit is a name"),
+                     ("zz", "not hex"), ("AB", "upper case, two digits"),
+                     ("ff", "lower case, two digits")]:
+        g.count("edge-hexshape")
+        g.event([("PATH", [
+            g.bare("item", 0), ("name", lit, None),
+            g.bare("inode", 5), g.bare("dev", "fd:01"),
+            g.bare("mode", "0100644"), g.bare("ouid", 0),
+            g.bare("ogid", 0), g.bare("rdev", "00:00"),
+            g.bare("nametype", "NORMAL")])])
+
+    # A record with no fields at all, only prose.  The kernel's AVC
+    # records are the ones with prose before their fields; this one has
+    # nothing after it.  Nothing in 336308 real records looked like this
+    # and a mutation that threw away the prose of a field-less record
+    # survived the whole suite until it was added.
+    g.count("edge-no-fields")
+    g.event([("USER_AVC", [("@prefix",
+                            "avc:  received policyload notice (seqno=2)",
+                            None)])])
+
+    # Capability masks with one and two bits set.  cap_fp=0 and a full
+    # mask were the only two in the corpus, and a mutation that dropped
+    # the lowest capability bit survived both: zero renders as none
+    # whichever way the loop is wrong, and in a 41-name list one missing
+    # name is one of 41 and the comparison is of the whole string, so it
+    # was caught, but the single-bit case is the one that pins the index.
+    for cp in ["0000000000000001", "0000000000000002", "0000000000000003",
+               "0000000000000080", "0000000000000000",
+               "000001ffffffffff", "0000000000200000"]:
+        g.count("edge-cap")
+        g.event([("PATH", [
+            g.bare("item", 0), g.text("name", "/srv/data/report.txt"),
+            g.bare("inode", 9), g.bare("dev", "fd:01"),
+            g.bare("mode", "0100644"), g.bare("ouid", 0), g.bare("ogid", 0),
+            g.bare("rdev", "00:00"), g.bare("nametype", "NORMAL"),
+            g.bare("cap_fp", cp), g.bare("cap_fi", cp),
+            g.bare("cap_fe", 1), g.bare("cap_fver", 2),
+            g.bare("cap_frootid", 0)])])
 
     # An empty value.  msg= with nothing after it is what auditd writes
     # when a userspace message is empty, and it is the one encoding the

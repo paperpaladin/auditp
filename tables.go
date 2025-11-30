@@ -1323,8 +1323,126 @@ var errnoText = map[int]string{
 	133: "Memory page has hardware error",
 }
 
-// Signal names.  Python's signal module and asm-generic/signal.h agreed on 31.
+// Capability bit names.  Each of the 41 bits linux/capability.h defines was put to ausearch on its own, because a missing name in the middle of a comma-separated list is easy to miss: 41 agreed.
+var capName = map[int]string{
+	0:  "chown",
+	1:  "dac_override",
+	2:  "dac_read_search",
+	3:  "fowner",
+	4:  "fsetid",
+	5:  "kill",
+	6:  "setgid",
+	7:  "setuid",
+	8:  "setpcap",
+	9:  "linux_immutable",
+	10: "net_bind_service",
+	11: "net_broadcast",
+	12: "net_admin",
+	13: "net_raw",
+	14: "ipc_lock",
+	15: "ipc_owner",
+	16: "sys_module",
+	17: "sys_rawio",
+	18: "sys_chroot",
+	19: "sys_ptrace",
+	20: "sys_pacct",
+	21: "sys_admin",
+	22: "sys_boot",
+	23: "sys_nice",
+	24: "sys_resource",
+	25: "sys_time",
+	26: "sys_tty_config",
+	27: "mknod",
+	28: "lease",
+	29: "audit_write",
+	30: "audit_control",
+	31: "setfcap",
+	32: "mac_override",
+	33: "mac_admin",
+	34: "syslog",
+	35: "wake_alarm",
+	36: "block_suspend",
+	37: "audit_read",
+	38: "perfmon",
+	39: "bpf",
+	40: "checkpoint_restore",
+}
+
+// seccomp return actions, masked with SECCOMP_RET_ACTION (0x7fff0000).  SECCOMP_RET_KILL_PROCESS is 0x80000000 and masks to zero, which is why ausearch prints kill-thread for it; that is libaudit's behaviour and auditp copies it.  5 of 7 agreed with linux/seccomp.h.
+var seccompCode = map[int]string{
+	0:          "kill-thread",
+	196608:     "trap",
+	327680:     "errno",
+	2143289344: "user-notify",
+	2146435072: "trace",
+	2147221504: "log",
+	2147418112: "allow",
+}
+
+// Netfilter protocol families, from the NFPROTO_ enum in linux/netfilter.h.  NOT the AF_ constants: family=1 is inet here and AF_UNIX there.  7 of 8 agreed.
+var nfprotoName = map[int]string{
+	0:  "unspecified",
+	1:  "inet",
+	2:  "ipv4",
+	3:  "arp",
+	5:  "netdev",
+	7:  "bridge",
+	10: "ipv6",
+	12: "decnet",
+}
+
+// Audit rule filter lists, AUDIT_FILTER_* in linux/audit.h against ausearch: 4 of 6 agreed.
+var filterListName = map[int]string{
+	0: "user",
+	1: "task",
+	4: "exit",
+	5: "exclude",
+	6: "filesystem",
+	7: "io_uring",
+}
+
+// Open flags, one bit at a time from asm-generic/fcntl.h against ausearch: 15 of 15 agreed.  The header writes them in octal with a leading zero and reading those as decimal gives a table that is wrong for every flag above O_RDWR.
+var openFlagName = map[int]string{
+	1:       "O_WRONLY",
+	2:       "O_RDWR",
+	64:      "O_CREAT",
+	128:     "O_EXCL",
+	256:     "O_NOCTTY",
+	512:     "O_TRUNC",
+	1024:    "O_APPEND",
+	2048:    "O_NONBLOCK",
+	4096:    "O_DSYNC",
+	16384:   "O_DIRECT",
+	65536:   "O_DIRECTORY",
+	131072:  "O_NOFOLLOW",
+	262144:  "O_NOATIME",
+	524288:  "O_CLOEXEC",
+	2097152: "O_PATH",
+}
+
+// mmap flags, one bit at a time from the three mman headers against ausearch: 16 of 16 agreed.
+var mapFlagName = map[int]string{
+	1:        "MAP_SHARED",
+	2:        "MAP_PRIVATE",
+	16:       "MAP_FIXED",
+	32:       "MAP_ANONYMOUS",
+	256:      "MAP_GROWSDOWN",
+	2048:     "MAP_DENYWRITE",
+	4096:     "MAP_EXECUTABLE",
+	8192:     "MAP_LOCKED",
+	16384:    "MAP_NORESERVE",
+	32768:    "MAP_POPULATE",
+	65536:    "MAP_NONBLOCK",
+	131072:   "MAP_STACK",
+	262144:   "MAP_HUGETLB",
+	524288:   "MAP_SYNC",
+	1048576:  "MAP_FIXED_NOREPLACE",
+	67108864: "MAP_UNINITIALIZED",
+}
+
+// Signal names as ausearch prints them, probed for 0 through 128 and cross-checked against asm-generic/signal.h and Python: 30 agreed.  Probed rather than computed because libaudit's table stops at 31, so signal 32 is SIGRTMIN to the kernel and unknown-signal(32) to ausearch, and signal 0 is SIG0, which is not a name anything else uses.
 var signalName = map[int]string{
+	0:  "SIG0",
 	1:  "SIGHUP",
 	2:  "SIGINT",
 	3:  "SIGQUIT",
@@ -1356,6 +1474,4 @@ var signalName = map[int]string{
 	29: "SIGIO",
 	30: "SIGPWR",
 	31: "SIGSYS",
-	34: "SIGRTMIN",
-	64: "SIGRTMAX",
 }

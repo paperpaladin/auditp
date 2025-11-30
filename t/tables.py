@@ -61,15 +61,124 @@ def defines(path, prefix):
             m = pat.match(line)
             if not m:
                 continue
-            v = m.group(2).rstrip()
-            if v.startswith("0x"):
+            v = m.group(2).rstrip().rstrip("Uu")
+            if v.startswith(("0x", "0X")):
                 try:
                     out[m.group(1)] = int(v, 16)
                 except ValueError:
                     pass
             elif v.isdigit():
-                out[m.group(1)] = int(v)
+                # asm-generic/fcntl.h writes its flags in octal with a
+                # leading zero: O_CREAT is 00000100 and is 64, not 100.
+                # Reading them as decimal gave an open-flag table that was
+                # wrong for every flag above O_RDWR.
+                out[m.group(1)] = int(v, 8) if len(v) > 1 and v[0] == "0" \
+                    else int(v)
     return out
+
+
+def enum_values(path, prefix):
+    """Read NAME = NUMBER out of a C enum body.  NFPROTO_* is an enum."""
+    out = {}
+    text = open(path).read()
+    for m in re.finditer(r"\b%s([A-Za-z0-9_]+)\s*=\s*(-?\d+)"
+                         % re.escape(prefix), text):
+        out[m.group(1)] = int(m.group(2))
+    return out
+
+
+def probe(records):
+    """Put a list of (type, body) to ausearch -i and return what it printed.
+
+    This is how every table below gets its second source: the header says
+    which numbers exist and what they are called, and ausearch is asked
+    what IT calls them.  A name auditp compiles in that ausearch does not
+    use is a field auditp will render wrongly, and only asking finds that.
+    """
+    import tempfile
+    lines = []
+    for i, (t, body) in enumerate(records):
+        lines.append("type=%s msg=audit(1700000000.%03d:%d): %s"
+                     % (t, i % 1000, 9000000 + i, body))
+    fd, path = tempfile.mkstemp(prefix="auditp-probe-")
+    try:
+        os.write(fd, ("\n".join(lines) + "\n").encode())
+        os.close(fd)
+        env = dict(os.environ)
+        env["TZ"] = "UTC"
+        env["LC_ALL"] = "C"
+        p = subprocess.run([AUSEARCH, "-i", "-if", path],
+                           capture_output=True, env=env)
+    finally:
+        os.unlink(path)
+    out = {}
+    pat = re.compile(r"^type=\S+ msg=audit\([^)]*:(\d+)\) : (.*)")
+    for line in p.stdout.decode("utf-8", "replace").splitlines():
+        m = pat.match(line)
+        if m:
+            out[int(m.group(1)) - 9000000] = m.group(2).rstrip()
+    return out
+
+
+def one_field(rendered, name):
+    m = re.search(r"(?:^| )%s=(\S*)" % re.escape(name), rendered)
+    return m.group(1) if m else None
+
+
+def bitflags(label, hdr, record_type, body_fmt, field, skip=()):
+    """Cross-check a bit-flag table one bit at a time.
+
+    For each single-bit value the header defines, ausearch is given a
+    record carrying exactly that bit and asked what it calls it.  One bit
+    at a time, because a mask of several is rendered as a list and a
+    missing name in the middle of a list is easy to miss.
+    """
+    bits = {}
+    for name, val in sorted(hdr.items(), key=lambda kv: kv[1]):
+        if name in skip or val == 0 or (val & (val - 1)) != 0:
+            continue
+        bits.setdefault(val, name)
+    keys = sorted(bits)
+    got = probe([(record_type, body_fmt % v) for v in keys])
+    out = {}
+    agree = 0
+    for i, v in enumerate(keys):
+        r = got.get(i)
+        if r is None:
+            problems.append("ONESIDED %s bit 0x%x (%s) got no answer"
+                            % (label, v, bits[v]))
+            continue
+        val = one_field(r, field)
+        if val is None:
+            problems.append("ONESIDED %s bit 0x%x (%s) field vanished"
+                            % (label, v, bits[v]))
+            continue
+        # ausearch renders a flag word as a list that always starts with
+        # the zero-valued base: O_RDONLY for open flags, MAP_FILE for
+        # mmap.  One bit therefore comes back as "O_RDONLY|O_CREAT", and
+        # the name of the bit is the last component.  Comparing the whole
+        # string reported thirteen false aliases.
+        val = val.rsplit("|", 1)[-1]
+        if val.startswith("0x"):
+            # ausearch has no name for this bit.  It prints 0x0x8 for
+            # MAP_DROPPABLE, which is libaudit's own formatting defect (a
+            # literal 0x in front of a %#x), and putting that string in
+            # the table would make auditp copy it.  Left out; the README
+            # records the defect.
+            problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
+                            "ausearch, which prints %s"
+                            % (label, v, bits[v], val))
+            continue
+        out[v] = val
+        if val == bits[v] or val.lower() == bits[v].lower():
+            agree += 1
+        else:
+            problems.append("ALIAS %s bit 0x%x: header says %s, ausearch "
+                            "says %s" % (label, v, bits[v], val))
+    return out, agree
+
+
+# ----------------------------------------------------------- errno, signals
 
 
 # ------------------------------------------------------------- syscalls
@@ -259,7 +368,6 @@ def arches():
     return out, agree
 
 
-# ----------------------------------------------------------- errno, signals
 def errnos():
     """Names from the uapi headers, cross-checked against Python's module.
 
@@ -292,23 +400,196 @@ def errnos():
 
 
 def signals():
+    """Signal names, probed from ausearch and cross-checked against the
+    header and Python.
+
+    Probed rather than computed because libaudit's table stops at 31:
+    signal 32 is SIGRTMIN to the kernel and unknown-signal(32) to
+    ausearch, and signal 0 is SIG0, which is not a name anything else
+    uses.  A table built from the header alone would be wrong at both
+    ends and would look complete.
+    """
     import signal as S
     py = {}
-    for s in S.Signals:
-        py.setdefault(int(s), s.name)
+    for sg in S.Signals:
+        py.setdefault(int(sg), sg.name)
     hdr = {}
     if need(SIGNAL_H):
         for name, val in defines(SIGNAL_H, "SIG").items():
             if 1 <= val <= 64:
                 hdr.setdefault(val, "SIG" + name)
+    got = probe([("ANOM_ABEND", "pid=1 sig=%d res=1" % n)
+                 for n in range(0, 129)])
+    out = {}
     agree = 0
-    for num in sorted(set(py) & set(hdr)):
-        if py[num] == hdr[num]:
+    for n in range(0, 129):
+        r = got.get(n)
+        if r is None:
+            continue
+        v = one_field(r, "sig")
+        if v is None or v.startswith("unknown-signal("):
+            continue
+        if hdr.get(n) == v or py.get(n) == v:
+            out[n] = v
+            agree += 1
+            continue
+        if n != 0 and hdr.get(n) is not None and hdr.get(n) == py.get(n):
+            # Two independent sources agree with each other and disagree
+            # with ausearch.  Two beats one: the table gets the sources'
+            # name and the divergence is recorded, rather than auditp
+            # copying a defect into a second implementation and helping
+            # it become the format.
+            out[n] = hdr[n]
+            problems.append("DIVERGE signal %d: ausearch says %s, both "
+                            "sources say %s, auditp follows the sources"
+                            % (n, v, hdr[n]))
+            continue
+        out[n] = v
+        if n != 0:
+            problems.append("ALIAS signal %d: ausearch says %s, header says "
+                            "%s, python says %s"
+                            % (n, v, hdr.get(n), py.get(n)))
+    return out, agree
+
+
+CAPABILITY_H = "/usr/include/linux/capability.h"
+SECCOMP_H = "/usr/include/linux/seccomp.h"
+NETFILTER_H = "/usr/include/linux/netfilter.h"
+FCNTL_H = "/usr/include/asm-generic/fcntl.h"
+MMAN_H = ["/usr/include/asm-generic/mman-common.h",
+          "/usr/include/asm-generic/mman.h",
+          "/usr/include/linux/mman.h"]
+
+
+def capabilities():
+    """CAP_* names, one bit at a time against ausearch."""
+    if not need(CAPABILITY_H):
+        return {}, 0
+    hdr = {}
+    for name, val in defines(CAPABILITY_H, "CAP_").items():
+        if 0 <= val <= 63 and name not in ("LAST_CAP",):
+            hdr.setdefault(val, name.lower())
+    keys = sorted(hdr)
+    got = probe([("PATH", 'item=0 name="/x" cap_fp=%016x cap_fi=0 '
+                  "cap_fe=0 cap_fver=0" % (1 << b)) for b in keys])
+    out = {}
+    agree = 0
+    for i, b in enumerate(keys):
+        r = got.get(i)
+        v = one_field(r, "cap_fp") if r else None
+        if v is None:
+            problems.append("ONESIDED capability bit %d (%s) got no answer"
+                            % (b, hdr[b]))
+            continue
+        out[b] = v
+        if v == hdr[b]:
             agree += 1
         else:
-            problems.append("NOTE signal %d: python says %s, header says %s"
-                            % (num, py[num], hdr[num]))
-    return py, agree
+            problems.append("ALIAS capability bit %d: header says %s, "
+                            "ausearch says %s" % (b, hdr[b], v))
+    return out, agree
+
+
+def seccomp_codes():
+    if not need(SECCOMP_H):
+        return {}, 0
+    hdr = {}
+    for name, val in defines(SECCOMP_H, "SECCOMP_RET_").items():
+        if name in ("ACTION", "ACTION_FULL", "DATA"):
+            continue
+        hdr.setdefault(val & 0x7FFF0000, name.lower().replace("_", "-"))
+    keys = sorted(hdr)
+    got = probe([("SECCOMP", "pid=1 arch=c000003e syscall=1 compat=0 "
+                  "ip=0x0 code=0x%08x" % v) for v in keys])
+    out = {}
+    agree = 0
+    for i, v in enumerate(keys):
+        r = got.get(i)
+        c = one_field(r, "code") if r else None
+        if c is None or c.startswith("unknown-seccomp-code("):
+            problems.append("ONESIDED seccomp code 0x%08x (%s) is not named "
+                            "by ausearch" % (v, hdr[v]))
+            continue
+        out[v] = c
+        if c == hdr[v]:
+            agree += 1
+        else:
+            problems.append("ALIAS seccomp code 0x%08x: header says %s, "
+                            "ausearch says %s" % (v, hdr[v], c))
+    return out, agree
+
+
+def nfprotos():
+    if not need(NETFILTER_H):
+        return {}, 0
+    hdr = {}
+    for name, val in enum_values(NETFILTER_H, "NFPROTO_").items():
+        if name != "NUMPROTO":
+            hdr.setdefault(val, name.lower())
+    keys = sorted(hdr)
+    got = probe([("NETFILTER_CFG", "table=t:1 family=%d entries=1 op=x pid=1"
+                  % v) for v in keys])
+    out = {}
+    agree = 0
+    for i, v in enumerate(keys):
+        r = got.get(i)
+        f = one_field(r, "family") if r else None
+        if f is None or f.startswith("unknown-netfilter-protocol("):
+            problems.append("ONESIDED netfilter family %d (%s) is not named "
+                            "by ausearch" % (v, hdr[v]))
+            continue
+        out[v] = f
+        if f == hdr[v]:
+            agree += 1
+        else:
+            problems.append("ALIAS netfilter family %d: header says %s, "
+                            "ausearch says %s" % (v, hdr[v], f))
+    return out, agree
+
+
+def filterlists():
+    if not need(AUDIT_H):
+        return {}, 0
+    hdr = {}
+    for name, val in defines(AUDIT_H, "AUDIT_FILTER_").items():
+        if val <= 15:
+            hdr.setdefault(val, name.lower())
+    got = probe([("CONFIG_CHANGE", 'op=add_rule key="k" list=%d res=1' % v)
+                 for v in range(0, 16)])
+    out = {}
+    agree = 0
+    for v in range(0, 16):
+        r = got.get(v)
+        l = one_field(r, "list") if r else None
+        if l is None or l.startswith("unknown-list("):
+            continue
+        out[v] = l
+        if hdr.get(v) == l:
+            agree += 1
+        else:
+            problems.append("ALIAS audit filter list %d: header says %s, "
+                            "ausearch says %s" % (v, hdr.get(v), l))
+    return out, agree
+
+
+def openflags():
+    if not need(FCNTL_H):
+        return {}, 0
+    hdr = {k: "O_" + k for k in defines(FCNTL_H, "O_")}
+    vals = defines(FCNTL_H, "O_")
+    named = {"O_" + k: v for k, v in vals.items()}
+    return bitflags("open flag", named, "MQ_OPEN", "oflag=0x%x mode=0600",
+                    "oflag", skip=("O_ACCMODE", "O_NDELAY", "O_LARGEFILE"))
+
+
+def mapflags():
+    hdr = {}
+    for h in MMAN_H:
+        if need(h):
+            for name, val in defines(h, "MAP_").items():
+                hdr.setdefault("MAP_" + name, val)
+    return bitflags("mmap flag", hdr, "MMAP", "fd=-1 flags=0x%x", "flags",
+                    skip=("MAP_TYPE", "MAP_HUGE_MASK", "MAP_HUGE_SHIFT"))
 
 
 # ------------------------------------------------------------- emission
@@ -348,6 +629,12 @@ def main():
     archs, agarch = arches()
     errs, errmsgs, agerr = errnos()
     sigs, agsig = signals()
+    caps, agcap = capabilities()
+    scodes, agsc = seccomp_codes()
+    nfp, agnf = nfprotos()
+    flists, agfl = filterlists()
+    oflags, agof = openflags()
+    mflags, agmf = mapflags()
 
     parts = ["""// Code generated by t/tables.py from external sources.  DO NOT EDIT.
 //
@@ -393,9 +680,45 @@ package main
         "brackets are glibc's, not ours: Go's own Errno.Error() "
         "lower-cases the first letter and would disagree on every one."))
     parts.append(go_map_int_str(
+        "capName", caps,
+        "Capability bit names.  Each of the %d bits linux/capability.h "
+        "defines was put to ausearch on its own, because a missing name "
+        "in the middle of a comma-separated list is easy to miss: %d "
+        "agreed." % (len(caps), agcap)))
+    parts.append(go_map_int_str(
+        "seccompCode", scodes,
+        "seccomp return actions, masked with SECCOMP_RET_ACTION "
+        "(0x7fff0000).  SECCOMP_RET_KILL_PROCESS is 0x80000000 and masks "
+        "to zero, which is why ausearch prints kill-thread for it; that "
+        "is libaudit's behaviour and auditp copies it.  %d of %d agreed "
+        "with linux/seccomp.h." % (agsc, len(scodes))))
+    parts.append(go_map_int_str(
+        "nfprotoName", nfp,
+        "Netfilter protocol families, from the NFPROTO_ enum in "
+        "linux/netfilter.h.  NOT the AF_ constants: family=1 is inet "
+        "here and AF_UNIX there.  %d of %d agreed." % (agnf, len(nfp))))
+    parts.append(go_map_int_str(
+        "filterListName", flists,
+        "Audit rule filter lists, AUDIT_FILTER_* in linux/audit.h "
+        "against ausearch: %d of %d agreed." % (agfl, len(flists))))
+    parts.append(go_map_int_str(
+        "openFlagName", oflags,
+        "Open flags, one bit at a time from asm-generic/fcntl.h against "
+        "ausearch: %d of %d agreed.  The header writes them in octal "
+        "with a leading zero and reading those as decimal gives a table "
+        "that is wrong for every flag above O_RDWR." % (agof, len(oflags))))
+    parts.append(go_map_int_str(
+        "mapFlagName", mflags,
+        "mmap flags, one bit at a time from the three mman headers "
+        "against ausearch: %d of %d agreed." % (agmf, len(mflags))))
+    parts.append(go_map_int_str(
         "signalName", sigs,
-        "Signal names.  Python's signal module and asm-generic/signal.h "
-        "agreed on %d." % agsig))
+        "Signal names as ausearch prints them, probed for 0 through 128 "
+        "and cross-checked against asm-generic/signal.h and Python: %d "
+        "agreed.  Probed rather than computed because libaudit's table "
+        "stops at 31, so signal 32 is SIGRTMIN to the kernel and "
+        "unknown-signal(32) to ausearch, and signal 0 is SIG0, which is "
+        "not a name anything else uses." % agsig))
 
     src = "\n\n".join(parts) + "\n"
     # Through gofmt, so that the committed file is already formatted and
@@ -423,12 +746,25 @@ package main
     rep.write("errno-two-source-agree %d\n" % agerr)
     rep.write("signal %d\n" % len(sigs))
     rep.write("signal-two-source-agree %d\n" % agsig)
+    rep.write("capability %d\n" % len(caps))
+    rep.write("capability-two-source-agree %d\n" % agcap)
+    rep.write("seccomp-code %d\n" % len(scodes))
+    rep.write("seccomp-code-two-source-agree %d\n" % agsc)
+    rep.write("nfproto %d\n" % len(nfp))
+    rep.write("nfproto-two-source-agree %d\n" % agnf)
+    rep.write("filter-list %d\n" % len(flists))
+    rep.write("filter-list-two-source-agree %d\n" % agfl)
+    rep.write("open-flag %d\n" % len(oflags))
+    rep.write("open-flag-two-source-agree %d\n" % agof)
+    rep.write("map-flag %d\n" % len(mflags))
+    rep.write("map-flag-two-source-agree %d\n" % agmf)
     # A name difference between two sources for the same number is an
     # alias and is recorded, not fatal; a number that moves is fatal.  The
     # committed t/tables.expect pins the exact set, so an eighth alias
     # appearing is a failure even though the seven known ones are not.
     hard = [p for p in problems
-            if not p.startswith(("NOTE ", "ALIAS ", "ONESIDED ", "COUNT "))]
+            if not p.startswith(("NOTE ", "ALIAS ", "ONESIDED ", "COUNT ",
+                                 "DIVERGE "))]
     rep.write("problems %d\n" % len(hard))
     rep.write("notes %d\n" % (len(problems) - len(hard)))
     for p in sorted(problems):

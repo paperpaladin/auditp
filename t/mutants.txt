@@ -1,0 +1,72 @@
+# One deliberate defect per line, as NAME @@@ FILE @@@ OLD @@@ NEW.  The
+# separator is @@@ and not a pipe because Go source is full of pipes: three
+# mutants of the hex decoder and the flag renderer silently failed to parse
+# and were reported as NOBUILD.
+# t/mutate.sh builds each one in a scratch directory and runs the whole
+# suite against it; a mutant that survives is a hole in the suite and is
+# written down as one rather than quietly dropped.
+#
+# The point is not the count.  It is that every claim in the README has
+# been watched to fail: a green suite nobody has seen go red is evidence
+# about nothing.
+#
+# One survivor, and it is equivalent rather than a hole.
+# field-name-needs-two-chars starts the name scan at i+1 instead of i.
+# fieldAt has already established that body[i] is a letter before the
+# loop runs, and a letter is a name byte, so the loop's first iteration
+# can only advance past it: the two versions compute the same length for
+# every input, including a one-character name.  Left in the catalogue
+# because a survivor that is deleted is a survivor nobody can check.
+#
+# --- the lexer ---
+quote-encoding-off@@@parse.go@@@	case '"':@@@	case '\x00':
+single-quote-off@@@parse.go@@@	case '\'':@@@	case '\x01':
+drop-last-field@@@parse.go@@@		fields = append(fields, f)@@@		if i+n+1+len(raw) < len(body) { fields = append(fields, f) }
+field-name-needs-two-chars@@@parse.go@@@	j := i\n	for j < len(body) && isNameByte(body[j]) {@@@	j := i + 1\n	for j < len(body) && isNameByte(body[j]) {
+prefix-not-recognised@@@parse.go@@@	if start < 0 {\n		return body, nil, nil\n	}@@@	if start < 0 {\n		return nil, nil, nil\n	}
+value-stops-at-tab@@@parse.go@@@	j := bytes.IndexByte(body[i:], ' ')@@@	j := bytes.IndexByte(body[i:], '\t')
+# --- event assembly ---
+key-ignores-serial@@@parse.go@@@	return fmt.Sprintf("%d.%03d:%d", r.Secs, r.Millis, r.Serial)@@@	return fmt.Sprintf("%d.%03d", r.Secs, r.Millis)
+key-ignores-millis@@@parse.go@@@	return fmt.Sprintf("%d.%03d:%d", r.Secs, r.Millis, r.Serial)@@@	return fmt.Sprintf("%d:%d", r.Secs, r.Serial)
+key-ignores-node@@@parse.go@@@		return fmt.Sprintf("%s:%d.%03d:%d", r.Node, r.Secs, r.Millis, r.Serial)@@@		return fmt.Sprintf("%d.%03d:%d", r.Secs, r.Millis, r.Serial)
+events-adjacent-only@@@read.go@@@		ev := index[k]@@@		ev := index[k]\n		if len(events) > 0 && events[len(events)-1] != ev {\n			ev = nil\n		}
+# --- the hex decoder and the escape rendering ---
+hex-no-nul-truncate@@@interp.go@@@		case c == 0:\n			return string(out)@@@		case c == 0:\n			continue
+hex-escape-in-hex@@@interp.go@@@			out = append(out, '\\', '0'+(c>>6)&7, '0'+(c>>3)&7, '0'+c&7)@@@			out = append(out, '\\', 'x', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+hex-escape-boundary@@@interp.go@@@		case c < 0x20:@@@		case c < 0x21:
+hex-escape-high-bytes@@@interp.go@@@		case c < 0x20:@@@		case c < 0x20 || c > 0x7e:
+hexshaped-even-only@@@parse.go@@@	if f.Enc != EncBare || len(f.Raw) < 2 {@@@	if f.Enc != EncBare || len(f.Raw) < 2 || len(f.Raw)%2 != 0 {
+hexshaped-uppercase-only@@@parse.go@@@c >= 'A' && c <= 'F' ||\n			c >= 'a' && c <= 'f') {@@@c >= 'A' && c <= 'F') {
+hexshaped-min-one-digit@@@parse.go@@@len(f.Raw) < 2 {@@@len(f.Raw) < 1 {
+hexdecode-nibble-swap@@@parse.go@@@		out[i] = hi<<4 | lo@@@		out[i] = lo<<4 | hi
+hexdecode-odd-nibble-low@@@parse.go@@@		hi := hexval(f.Raw[2*i])\n		var lo byte\n		if 2*i+1 < len(f.Raw) {\n			lo = hexval(f.Raw[2*i+1])\n		}@@@		var hi byte\n		lo := hexval(f.Raw[2*i])\n		if 2*i+1 < len(f.Raw) {\n			hi = lo\n			lo = hexval(f.Raw[2*i+1])\n		}
+escaped-table-loses-cmd@@@interp.go@@@	"data": true, "key": true,@@@	"key": true,
+escaped-table-loses-name@@@interp.go@@@"name": true, "ocomm": true,@@@"ocomm": true,
+execve-args-not-decoded@@@interp.go@@@	return r.Type == "EXECVE" && len(f.Name) >= 2 && f.Name[0] == 'a' &&@@@	return false && len(f.Name) >= 2 && f.Name[0] == 'a' &&
+proctitle-keeps-nul@@@interp.go@@@		if c[i] == 0 {\n			c[i] = ' '\n		}@@@		if c[i] == 0 {\n			c[i] = 0\n		}
+# --- the tables ---
+syscall-ignores-arch@@@interp.go@@@	case "i386":\n		tab = syscallI386@@@	case "i386":\n		tab = syscallX8664
+syscall-off-by-one@@@interp.go@@@	if name, ok := tab[nr]; ok {@@@	if name, ok := tab[nr+1]; ok {
+arch-table-ignored@@@interp.go@@@	if name, ok := archName[int(n)]; ok {@@@	if name, ok := archName[int(n)+1]; ok {
+# --- the interpreters ---
+uid-falls-back-to-number@@@interp.go@@@	return fmt.Sprintf("unknown(%d)", n)@@@	return raw
+uid-no-unset@@@interp.go@@@	if n == unsetID {\n		return "unset"\n	}@@@	if false {\n		return "unset"\n	}
+gid-uses-passwd@@@interp.go@@@		return ip.id(raw, ip.group), ip.claim("gid")@@@		return ip.id(raw, ip.passwd), ip.claim("gid")
+mode-suid-sgid-swapped@@@interp.go@@@	if n&04000 != 0 {\n		b.WriteString(",suid")\n	}\n	if n&02000 != 0 {\n		b.WriteString(",sgid")\n	}@@@	if n&04000 != 0 {\n		b.WriteString(",sgid")\n	}\n	if n&02000 != 0 {\n		b.WriteString(",suid")\n	}
+mode-perm-in-decimal@@@interp.go@@@	fmt.Fprintf(&b, ",%03o", n&0777)@@@	fmt.Fprintf(&b, ",%03d", n&0777)
+mode-type-shift@@@interp.go@@@	t := (n >> 12) & 0xF@@@	t := (n >> 9) & 0xF
+exit-sign-ignored@@@interp.go@@@n >= 0 {\n		return raw\n	}\n	e := -n@@@n >= 1<<62 {\n		return raw\n	}\n	e := n
+exit-text-dropped@@@interp.go@@@	return name + "(" + text + ")"@@@	return name
+cap-bit-off-by-one@@@interp.go@@@		if name, ok := capName[b]; ok {@@@		if name, ok := capName[b+1]; ok {
+cap-zero-not-none@@@interp.go@@@	if n == 0 {\n		return "none"\n	}@@@	if n == 1 {\n		return "none"\n	}
+ cap-single-bit-dropped@@@interp.go@@@		if name, ok := capName[b]; ok {\n			parts = append(parts, name)\n		}@@@		if name, ok := capName[b]; ok && b != 0 {\n			parts = append(parts, name)\n		}
+seccomp-mask-wrong@@@interp.go@@@	a := n & 0x7FFF0000@@@	a := n & 0xFFFF0000
+res-yes-no-swapped@@@interp.go@@@	case 0:\n		return "no"\n	case 1:\n		return "yes"@@@	case 0:\n		return "yes"\n	case 1:\n		return "no"
+sig-zero-not-special@@@interp.go@@@	if name, ok := signalName[int(n)]; ok {@@@	if name, ok := signalName[int(n)]; ok && n != 0 {
+family-uses-socket-table@@@interp.go@@@	if name, ok := nfprotoName[int(n)]; ok {@@@	if name, ok := nfprotoName[int(n)+1]; ok {
+mapflags-always-mapfile@@@interp.go@@@	if n&3 == 0 {\n		parts = append(parts, "MAP_FILE")\n	}@@@	parts = append(parts, "MAP_FILE")
+oflag-accmode-ignored@@@interp.go@@@		n &^= 3@@@		n &^= 0
+time-month-day-swapped@@@interp.go@@@	return fmt.Sprintf("%s.%03d", t.Format("01/02/2006 15:04:05"), r.Millis),@@@	return fmt.Sprintf("%s.%03d", t.Format("02/01/2006 15:04:05"), r.Millis),
+time-millis-dropped@@@interp.go@@@	return fmt.Sprintf("%s.%03d", t.Format("01/02/2006 15:04:05"), r.Millis),@@@	return fmt.Sprintf("%s.000", t.Format("01/02/2006 15:04:05")),
+typename-not-resolved@@@interp.go@@@				if name := auditTypeName[num]; name != "" {@@@				if name := auditTypeName[num]; false {
+nested-not-interpreted@@@interp.go@@@		v, _ := ip.FieldFlag(r, g)\n		b.WriteString(v)@@@		b.Write(g.Raw)

@@ -19,18 +19,36 @@ const (
 	EncEmpty                  // msg= at end of line, or followed by a space
 )
 
-// HexShaped reports whether a bare value could be a hex encoding: an even
-// number of upper-case hex digits, at least two.  It is a question about
-// the bytes and not about the field, and the answer is not sufficient.
+// HexShaped reports whether a bare value could be a hex encoding: at
+// least two hex digits and nothing else.  It is a question about the
+// bytes and not about the field, and the answer is not sufficient.
 // exit=60 and a2=3c are hex-shaped and are not hex-encoded; cmd= and
-// proctitle= are.  Which field names the kernel hex-encodes is a table, and
-// it lives in the interpreter, which is the layer allowed to refuse.
+// proctitle= are.  Which field names the kernel hex-encodes is a table,
+// and it lives in the interpreter, which is the layer allowed to refuse.
+//
+// Three details, all measured against ausearch rather than assumed, and
+// all three wrong in the first version:
+//
+//	lower case counts.  The kernel writes upper case, and ausearch
+//	decodes name=abcdef to three bytes all the same.  A reader that
+//	insists on upper case leaves a value from any other producer
+//	unreadable.
+//
+//	an odd number of digits counts.  ausearch decodes cmd=4142434 to
+//	ABC@: three whole bytes and then the leftover nibble shifted up
+//	into the high half of a fourth.  Not an error and not a truncation.
+//
+//	one digit does not count.  name=4 is the file called 4, and
+//	name=12 is the single byte 0x12.  That is the format's ambiguity
+//	and not a choice available to a reader: a two-character numeric
+//	filename cannot be distinguished from a byte.
 func (f *Field) HexShaped() bool {
-	if f.Enc != EncBare || len(f.Raw) < 2 || len(f.Raw)%2 != 0 {
+	if f.Enc != EncBare || len(f.Raw) < 2 {
 		return false
 	}
 	for _, c := range f.Raw {
-		if !(c >= '0' && c <= '9' || c >= 'A' && c <= 'F') {
+		if !(c >= '0' && c <= '9' || c >= 'A' && c <= 'F' ||
+			c >= 'a' && c <= 'f') {
 			return false
 		}
 	}
@@ -38,11 +56,17 @@ func (f *Field) HexShaped() bool {
 }
 
 // HexDecode decodes a hex-shaped value.  Callers have already established
-// that the field is one the kernel encodes.
+// that the field is one the kernel encodes.  A trailing odd nibble
+// becomes the high half of a last byte, which is what ausearch does.
 func (f *Field) HexDecode() []byte {
-	out := make([]byte, len(f.Raw)/2)
+	out := make([]byte, (len(f.Raw)+1)/2)
 	for i := range out {
-		out[i] = hexval(f.Raw[2*i])<<4 | hexval(f.Raw[2*i+1])
+		hi := hexval(f.Raw[2*i])
+		var lo byte
+		if 2*i+1 < len(f.Raw) {
+			lo = hexval(f.Raw[2*i+1])
+		}
+		out[i] = hi<<4 | lo
 	}
 	return out
 }

@@ -18,11 +18,15 @@ AUSEARCH=/usr/sbin/ausearch
 	exit 2
 }
 
-[ -x ./auditp ] || { echo "no ./auditp binary: run make, not t/run.sh" >&2; exit 2; }
+# AUDITP lets the mutation harness point the whole suite at a binary built
+# from patched sources in a scratch directory, so a mutation run never
+# edits the working tree.
+AUDITP=${AUDITP:-./auditp}
+[ -x "$AUDITP" ] || { echo "no $AUDITP binary: run make, not t/run.sh" >&2; exit 2; }
 # A binary older than its source is the stale-binary trap METHOD warns about:
 # three terminfo mutants were recorded as surviving against one.
 for f in *.go go.mod; do
-	[ "$f" -nt ./auditp ] && { echo "$f is newer than ./auditp: run make" >&2; exit 2; }
+	[ "$f" -nt "$AUDITP" ] && { echo "$f is newer than $AUDITP: run make" >&2; exit 2; }
 done
 
 T=t/tmp.$$
@@ -86,45 +90,51 @@ floor "hostile text values"  12 "$(cnt edge-text)"
 ntyp=$(cut -d" " -f1 "$CORPUS" | sed "s/^node=[^ ]* //" | sort -u | wc -l)
 floor "distinct record types" 45 "$ntyp"
 
-# --- 3. the parser loses nothing --------------------------------------
-# Unparse writes the parsed records back out.  Byte-for-byte equality with
-# the input is the one check that notices a field the splitter swallowed:
-# it reads only our side, so it is not an oracle, but a splitter that drops
-# a value cannot satisfy it.
-./auditp -o unparse "$CORPUS" > "$T/rt.log" 2>"$T/rt.err"
-if cmp -s "$CORPUS" "$T/rt.log"; then ok "round trip: $(wc -l < "$CORPUS") records reproduced byte for byte"
-else no "round trip differs: $(cmp "$CORPUS" "$T/rt.log" 2>&1 | head -1)"; fi
-
-# --- 4. the oracle, field by field ------------------------------------
-./auditp -o flat "$CORPUS" > "$T/ours.flat" || no "auditp -o flat exited non-zero"
-python3 t/oracle.py "$CORPUS" > "$T/orc.flat" 2>"$T/orc.err"
-if [ -s "$T/orc.flat" ]; then
-	python3 t/compare.py --no-refusals --ours "$T/ours.flat" --oracle "$T/orc.flat" \
-		> "$T/cmp.txt" 2>&1
-	rc=$?
-	# Anchored to end of line: an unanchored extractor also matched the
-	# example lines below the summary and returned 1300 of them as one
-	# number, which the shell then compared as a string.
-	num() { awk -v k="$1" '$1==k && $2 ~ /^[0-9]+$/ && NF==2 {print $2; exit}' "$T/cmp.txt"; }
-	n=$(awk '$1=="compared"{print $2; exit}' "$T/cmp.txt")
-	nn=$(awk '$1=="compared"{print $4; exit}' "$T/cmp.txt")
-	w=$(num WRONG)
-	r=$(num REFUSED)
-	mo=$(num MISSING-ours)
-	mc=$(num MISSING-oracle)
-	if [ "$rc" -eq 0 ]; then
-		ok "raw: $n fields over $nn names identical to ausearch, 0 wrong, 0 missing"
+# --- 3. the parser loses nothing, and the oracle, field by field -----
+# Two corpora.  gen.log is the main one; interleaved.log holds two events
+# whose records alternate in the file, which is what a busy machine
+# produces and what a correlator that only looks at adjacent lines gets
+# wrong.  A mutation that merged a record only into the most recent event
+# survived the whole suite while the second corpus was not being read.
+compare_corpus() {
+	label=$1
+	log=$2
+	# Round trip.  Reads only our side, so it is not an oracle, but a
+	# splitter that swallows a field cannot satisfy it.
+	"$AUDITP" -o unparse "$log" > "$T/$label.rt" 2>"$T/$label.rt.err"
+	if cmp -s "$log" "$T/$label.rt"; then
+		ok "$label round trip: $(wc -l < "$log") records reproduced byte for byte"
 	else
-		no "raw: $w wrong, $r differing, $mo missing from us, $mc missing from the oracle"
-		sed -n '1,30p' "$T/cmp.txt"
+		no "$label round trip differs: $(cmp "$log" "$T/$label.rt" 2>&1 | head -1)"
 	fi
-	[ "${n:-0}" -ge 10000 ] && ok "raw comparison covered $n fields (floor 10000)" \
-	                        || no "raw comparison covered only ${n:-0} fields"
-	[ "${nn:-0}" -ge 100 ] && ok "raw comparison covered $nn distinct field names (floor 100)" \
-	                       || no "raw comparison covered only ${nn:-0} field names"
-else
-	no "t/oracle.py produced nothing: $(head -2 "$T/orc.err")"
-fi
+
+	"$AUDITP" -o flat "$log" > "$T/$label.ours" || no "$label: auditp -o flat exited non-zero"
+	python3 t/oracle.py "$log" > "$T/$label.orc" 2>"$T/$label.orc.err"
+	if [ ! -s "$T/$label.orc" ]; then
+		no "$label: t/oracle.py produced nothing: $(head -2 "$T/$label.orc.err")"
+		return
+	fi
+	python3 t/compare.py --no-refusals --ours "$T/$label.ours" \
+		--oracle "$T/$label.orc" > "$T/$label.cmp" 2>&1
+	rc=$?
+	num() { awk -v k="$1" '$1==k && $2 ~ /^[0-9]+$/ && NF==2 {print $2; exit}' "$T/$label.cmp"; }
+	n=$(awk '$1=="compared"{print $2; exit}' "$T/$label.cmp")
+	nn=$(awk '$1=="compared"{print $4; exit}' "$T/$label.cmp")
+	if [ "$rc" -eq 0 ]; then
+		ok "$label raw: $n fields over $nn names identical to ausearch, 0 wrong, 0 missing"
+	else
+		no "$label raw: $(num WRONG) wrong, $(num REFUSED) differing, $(num MISSING-ours) missing from us, $(num MISSING-oracle) missing from the oracle"
+		sed -n '1,30p' "$T/$label.cmp"
+	fi
+	echo "$n" > "$T/$label.nfields"
+	echo "$nn" > "$T/$label.nnames"
+}
+
+compare_corpus main "$CORPUS"
+compare_corpus interleaved t/corpus/interleaved.log
+floor "fields compared raw in the main corpus" 10000 "$(cat "$T/main.nfields")"
+floor "distinct field names compared raw" 100 "$(cat "$T/main.nnames")"
+floor "fields compared raw in the interleaved corpus" 90 "$(cat "$T/interleaved.nfields")"
 
 # --- 5. the tables, against the two sources each was built from --------
 # t/tables.py reads ausyscall AND the uapi headers, ausearch AND
@@ -162,10 +172,10 @@ fi
 # Here the refusal channel is live.  WRONG is the only failure: a field
 # auditp declined to translate and ausearch did is a gap, counted and
 # named, and a field auditp translated differently is a defect.
-./auditp -o flat -i "$CORPUS" > "$T/oursi.flat" || no "auditp -i -o flat exited non-zero"
+"$AUDITP" -o flat -i "$CORPUS" > "$T/oursi.flat" || no "auditp -i -o flat exited non-zero"
 python3 t/oracle.py --interpret "$CORPUS" > "$T/orci.flat" 2>"$T/orci.err"
 if [ -s "$T/orci.flat" ]; then
-	python3 t/compare.py --known t/ambiguous.txt \
+	python3 t/compare.py --known t/known-diff.txt \
 		--ours "$T/oursi.flat" --oracle "$T/orci.flat" \
 		> "$T/cmpi.txt" 2>&1
 	rc=$?
@@ -195,7 +205,7 @@ fi
 # a second decoder and recovering what was encoded are different claims,
 # and the hex encoding exists for exactly the bytes two decoders are most
 # likely to mangle the same way.
-./auditp -o decode "$CORPUS" > "$T/dec.tsv" || no "auditp -o decode exited non-zero"
+"$AUDITP" -o decode "$CORPUS" > "$T/dec.tsv" || no "auditp -o decode exited non-zero"
 python3 t/truth.py --decoded "$T/dec.tsv" --truth "$TRUTH" > "$T/truth.txt" 2>&1
 rc=$?
 tn() { awk -v k="$1" '$1==k{print $2; exit}' "$T/truth.txt"; }
@@ -216,7 +226,7 @@ floor "ground-truth values compared" 1000 "$(tn truth-rows)"
 # stale without this turning red.
 python3 t/escaped.py "$CORPUS" > "$T/esc.probe" 2>"$T/esc.err"
 if [ -s "$T/esc.probe" ]; then
-	./auditp -o census "$CORPUS" | sed -n 's/^escaped-pair //p' | sort > "$T/esc.ours"
+	"$AUDITP" -o census "$CORPUS" | sed -n 's/^escaped-pair //p' | sort > "$T/esc.ours"
 	sort "$T/esc.probe" > "$T/esc.theirs"
 	np=$(wc -l < "$T/esc.theirs")
 	if cmp -s "$T/esc.ours" "$T/esc.theirs"; then
