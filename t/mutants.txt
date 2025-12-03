@@ -70,3 +70,16 @@ time-month-day-swapped@@@interp.go@@@	return fmt.Sprintf("%s.%03d", t.Format("01
 time-millis-dropped@@@interp.go@@@	return fmt.Sprintf("%s.%03d", t.Format("01/02/2006 15:04:05"), r.Millis),@@@	return fmt.Sprintf("%s.000", t.Format("01/02/2006 15:04:05")),
 typename-not-resolved@@@interp.go@@@				if name := auditTypeName[num]; name != "" {@@@				if name := auditTypeName[num]; false {
 nested-not-interpreted@@@interp.go@@@		v, _ := ip.FieldFlag(r, g)\n		b.WriteString(v)@@@		b.Write(g.Raw)
+# --- syscall arguments ---
+arg-plain-reformats@@@args.go@@@		return "0x" + raw, ip.claim("arg-plain")@@@		return fmt.Sprintf("0x%s", strings.ToLower(raw)), ip.claim("arg-plain")
+arg-dirfd-wrong-value@@@args.go@@@const atFDCWD = 0xffffff9c@@@const atFDCWD = 0xffffff9d
+arg-mode4-keeps-special-bits@@@args.go@@@	fmt.Fprintf(&b, "%04o", n&0777)@@@	fmt.Fprintf(&b, "%04o", n&07777)
+arg-uid-not-sign-extended@@@args.go@@@	return fmt.Sprintf("unknown(%d)", int32(uint32(n)))@@@	return fmt.Sprintf("unknown(%d)", n)
+arg-socktype-unmasked@@@args.go@@@		return lookup(n&0xff, sockTypeName, "unknown-type(%x)"), ip.claim(what)@@@		return lookup(n, sockTypeName, "unknown-type(%x)"), ip.claim(what)
+arg-openmode-unconditional@@@args.go@@@		if flags, ok := ip.argValue(r, openFlagsIndex[sysname]); ok &&\n			flags&oCreat != 0 {@@@		if true {
+arg-prot-tables-shared@@@args.go@@@	case argProtMmap:\n		return protText(n, protFlagMmapName), ip.claim(what)@@@	case argProtMmap:\n		return protText(n, protFlagName), ip.claim(what)
+arg-prot-no-none@@@args.go@@@func protText(n uint64, tab map[int]string) string {\n	return bitsOrZero(n, tab, 7, "PROT_NONE")@@@func protText(n uint64, tab map[int]string) string {\n	return bitsOrZero(n, tab, 0xffffffff, "PROT_NONE")
+arg-unimpl-printed-anyway@@@args.go@@@	} else if kind == argPlain {\n		kind = argUnimpl\n	}@@@	}
+arg-table-not-per-arch@@@args.go@@@	if !argInterpreted(arch, sysname, idx) {\n		kind = argPlain\n	}@@@	if false {\n		kind = argPlain\n	}
+# --- the timestamp zone ---
+time-forced-to-utc@@@interp.go@@@	t := time.Unix(r.Secs, 0)@@@	t := time.Unix(r.Secs, 0).UTC()

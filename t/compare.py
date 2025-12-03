@@ -84,6 +84,10 @@ def main():
                 p = line.split("\t")
                 if len(p) == 3:
                     known.add(tuple(p))
+    # Keyed by (field, our value, ausearch's value) and not by position.
+    # The first version keyed on the event serial, and every regeneration
+    # of the corpus moved the serials, so a recorded difference silently
+    # became a failure and a new one silently became exempt.
 
     agree_i = agree_p = refused = wrong = ambiguous = 0
     seen_known = set()
@@ -107,9 +111,9 @@ def main():
                 agree_i += 1
             else:
                 agree_p += 1
-        elif k in known:
+        elif (k[2], val, oval) in known:
             ambiguous += 1
-            seen_known.add(k)
+            seen_known.add((k[2], val, oval))
         elif flag == "i":
             wrong += 1
             by_wrong[k[2]] += 1

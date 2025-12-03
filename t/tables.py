@@ -125,7 +125,7 @@ def one_field(rendered, name):
     return m.group(1) if m else None
 
 
-def bitflags(label, hdr, record_type, body_fmt, field, skip=()):
+def bitflags(label, hdr, record_type, body_fmt, field, skip=(), base=0):
     """Cross-check a bit-flag table one bit at a time.
 
     For each single-bit value the header defines, ausearch is given a
@@ -139,7 +139,11 @@ def bitflags(label, hdr, record_type, body_fmt, field, skip=()):
             continue
         bits.setdefault(val, name)
     keys = sorted(bits)
-    got = probe([(record_type, body_fmt % v) for v in keys])
+    # The base bit itself is probed alone, or stripping it would leave
+    # nothing: the first version emitted an empty name for PROT_EXEC and
+    # for every bit the renderer does not know.
+    got = probe([(record_type, body_fmt % (v if v == base else v | base))
+                 for v in keys])
     out = {}
     agree = 0
     for i, v in enumerate(keys):
@@ -158,7 +162,14 @@ def bitflags(label, hdr, record_type, body_fmt, field, skip=()):
         # mmap.  One bit therefore comes back as "O_RDONLY|O_CREAT", and
         # the name of the bit is the last component.  Comparing the whole
         # string reported thirteen false aliases.
+        if base and v != base:
+            val = "|".join(p for p in val.split("|")
+                           if p != bits.get(base, ""))
         val = val.rsplit("|", 1)[-1]
+        if val == "":
+            problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
+                            "ausearch" % (label, v, bits[v]))
+            continue
         if val.startswith("0x"):
             # ausearch has no name for this bit.  It prints 0x0x8 for
             # MAP_DROPPABLE, which is libaudit's own formatting defect (a
@@ -456,9 +467,12 @@ CAPABILITY_H = "/usr/include/linux/capability.h"
 SECCOMP_H = "/usr/include/linux/seccomp.h"
 NETFILTER_H = "/usr/include/linux/netfilter.h"
 FCNTL_H = "/usr/include/asm-generic/fcntl.h"
+# The x86 header is in the list because MAP_32BIT is defined only there,
+# and leaving it out cost a wrong rendering of every mmap that used it.
 MMAN_H = ["/usr/include/asm-generic/mman-common.h",
           "/usr/include/asm-generic/mman.h",
-          "/usr/include/linux/mman.h"]
+          "/usr/include/linux/mman.h",
+          "/usr/lib/linux/uapi/x86/asm/mman.h"]
 
 
 def capabilities():
@@ -575,11 +589,16 @@ def filterlists():
 def openflags():
     if not need(FCNTL_H):
         return {}, 0
-    hdr = {k: "O_" + k for k in defines(FCNTL_H, "O_")}
-    vals = defines(FCNTL_H, "O_")
-    named = {"O_" + k: v for k, v in vals.items()}
+    named = {"O_" + k: v for k, v in defines(FCNTL_H, "O_").items()}
+    # __O_SYNC and __O_TMPFILE are spelled with two leading underscores
+    # and ausearch names them, so a table built from the O_ prefix alone
+    # is missing two bits and renders every flag word that has one of
+    # them short by a name.
+    for k, v in defines(FCNTL_H, "__O_").items():
+        named["__O_" + k] = v
     return bitflags("open flag", named, "MQ_OPEN", "oflag=0x%x mode=0600",
-                    "oflag", skip=("O_ACCMODE", "O_NDELAY", "O_LARGEFILE"))
+                    "oflag", skip=("O_ACCMODE", "O_NDELAY", "O_LARGEFILE"),
+                    base=1)
 
 
 def mapflags():
@@ -588,8 +607,211 @@ def mapflags():
         if need(h):
             for name, val in defines(h, "MAP_").items():
                 hdr.setdefault("MAP_" + name, val)
+    # base=1 (MAP_SHARED) so that the zero-valued MAP_FILE is not what a
+    # bit with no name comes back as.  Without it every unnamed bit was
+    # recorded as MAP_FILE and the renderer appended MAP_FILE to flag
+    # words that did not have it.
     return bitflags("mmap flag", hdr, "MMAP", "fd=-1 flags=0x%x", "flags",
-                    skip=("MAP_TYPE", "MAP_HUGE_MASK", "MAP_HUGE_SHIFT"))
+                    skip=("MAP_TYPE", "MAP_HUGE_MASK", "MAP_HUGE_SHIFT"),
+                    base=1)
+
+
+# --------------------------------------------------- syscall arguments
+SCHED_H = "/usr/include/linux/sched.h"
+FS_H = "/usr/include/linux/fs.h"
+MMAN_COMMON_H = "/usr/include/asm-generic/mman-common.h"
+PROTOCOLS = "/etc/protocols"
+
+ARG_PROBE_VALUES = ["0", "1", "3", "10", "42", "ff", "ffffff9c"]
+ARCH_X8664 = "c000003e"
+ARCH_I386 = "40000003"
+
+
+def syscall_args(arch, tab):
+    """Which (syscall, argument) pairs ausearch interprets at all.
+
+    a0 to a3 are the one part of the format with no self-describing
+    structure: the same four names mean a directory file descriptor, a
+    mode, a uid, a signal or nothing at all depending on which syscall
+    the record is about.  ausearch has a table of 95 such pairs for
+    x86_64 and auditp implements some of them; the rest have to be
+    REFUSED rather than printed as a number, because printing 0x2a where
+    ausearch prints a signal name is a wrong answer and not a gap.
+
+    So the set is measured.  Each syscall gets one record per argument
+    per probe value, and a pair where any value came back as something
+    other than 0x<hex> is one ausearch interprets.  The result is
+    compiled into auditp and re-probed by the suite.
+    """
+    recs = []
+    index = []
+    # Two passes over the other three arguments: all zero, and all ones.
+    # Some pairs are interpreted conditionally -- x86_64's open shows a
+    # mode in a2 only when a1 carries O_CREAT -- and a probe that leaves
+    # the neighbours at zero reports those as uninterpreted.  Which they
+    # are, on i386, where ausearch never shows open's mode at all: the
+    # table is per machine as well as per syscall, so this cannot be
+    # reasoned out and has to be asked.
+    for nr in sorted(tab):
+        for a in range(4):
+          for other in ("0", "ffffffff"):
+            for v in ARG_PROBE_VALUES:
+                args = [other] * 4
+                args[a] = v
+                index.append((nr, a, v))
+                recs.append(("SYSCALL",
+                             "arch=%s syscall=%d success=yes exit=0 "
+                             "a0=%s a1=%s a2=%s a3=%s items=0 ppid=1 pid=2 "
+                             "auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 "
+                             "egid=0 sgid=0 fsgid=0 tty=(none) ses=1 "
+                             'comm="x" exe="/x" key=(null)'
+                             % (arch, nr, args[0], args[1], args[2], args[3])))
+    got = probe(recs)
+    pairs = {}
+    answered = 0
+    for i, (nr, a, v) in enumerate(index):
+        r = got.get(i)
+        if r is None:
+            continue
+        answered += 1
+        val = one_field(r, "a%d" % a)
+        if val is None:
+            continue
+        plain = "0x%x" % int(v, 16)
+        if val != plain:
+            pairs[(tab[nr], a)] = True
+    if answered != len(index):
+        problems.append("ONESIDED %s argument probe: ausearch answered %d "
+                        "of %d records" % (arch, answered, len(index)))
+    out = {}
+    for (name, a) in pairs:
+        out[name] = out.get(name, 0) | (1 << a)
+    return out, len(pairs)
+
+
+def go_map_str_int(name, m, comment):
+    out = ["// %s" % comment, "var %s = map[string]int{" % name]
+    for k in sorted(m):
+        out.append("\t%s: %d," % (goquote(k), m[k]))
+    out.append("}")
+    return "\n".join(out)
+
+
+def small_table(label, hdr, record_type, body_fmt, field, lower=False):
+    """Probe a value-to-name table and cross-check it against hdr."""
+    keys = sorted(hdr)
+    got = probe([(record_type, body_fmt % v) for v in keys])
+    out = {}
+    agree = 0
+    for i, v in enumerate(keys):
+        r = got.get(i)
+        name = one_field(r, field) if r else None
+        if name is None or name.startswith(("unknown", "0x")):
+            problems.append("ONESIDED %s %d (%s) is not named by ausearch"
+                            % (label, v, hdr[v]))
+            continue
+        out[v] = name
+        want = hdr[v].lower() if lower else hdr[v]
+        if name == want:
+            agree += 1
+        else:
+            problems.append("ALIAS %s %d: source says %s, ausearch says %s"
+                            % (label, v, want, name))
+    return out, agree
+
+
+def arg_tables():
+    """The small per-argument tables, each from a header or a Python
+    module and each probed against ausearch."""
+    import socket as S
+    res = {}
+
+    fam = {}
+    for a in dir(S):
+        if a.startswith("AF_"):
+            fam.setdefault(int(getattr(S, a)), a[3:].lower())
+    res["sockFamily"] = small_table("socket family", fam, "SYSCALL",
+                                    "arch=c000003e syscall=41 success=yes "
+                                    "exit=0 a0=%x a1=0 a2=0 a3=0 items=0 "
+                                    "ppid=1 pid=2 auid=0 uid=0 gid=0 "
+                                    'tty=(none) ses=1 comm="x" exe="/x"',
+                                    "a0")
+
+    # Probed over 1..16 rather than built from Python, because Python's
+    # socket module has no SOCK_PACKET and ausearch does, so a table
+    # taken from Python is missing the one type most likely to appear in
+    # something worth auditing.  Python is the cross-check where it has
+    # the name.
+    typ = {}
+    for a in dir(S):
+        if a.startswith("SOCK_") and isinstance(getattr(S, a), int):
+            typ.setdefault(int(getattr(S, a)), a)
+    for n in range(1, 17):
+        typ.setdefault(n, "SOCK_%d" % n)
+    res["sockType"] = small_table("socket type", typ, "SYSCALL",
+                                  "arch=c000003e syscall=41 success=yes "
+                                  "exit=0 a0=0 a1=%x a2=0 a3=0 items=0 "
+                                  "ppid=1 pid=2 auid=0 uid=0 gid=0 "
+                                  'tty=(none) ses=1 comm="x" exe="/x"',
+                                  "a1")
+
+    proto = {}
+    if need(PROTOCOLS):
+        for line in open(PROTOCOLS):
+            line = line.split("#", 1)[0].split()
+            if len(line) >= 2 and line[1].isdigit():
+                proto.setdefault(int(line[1]), line[0])
+    res["sockProto"] = small_table("ip protocol", proto, "SYSCALL",
+                                   "arch=c000003e syscall=41 success=yes "
+                                   "exit=0 a0=0 a1=0 a2=%x a3=0 items=0 "
+                                   "ppid=1 pid=2 auid=0 uid=0 gid=0 "
+                                   'tty=(none) ses=1 comm="x" exe="/x"',
+                                   "a2")
+
+    whence = {}
+    if need(FS_H):
+        for name, val in defines(FS_H, "SEEK_").items():
+            if name != "MAX":
+                whence.setdefault(val, "SEEK_" + name)
+    res["seekWhence"] = small_table("lseek whence", whence, "SYSCALL",
+                                    "arch=c000003e syscall=8 success=yes "
+                                    "exit=0 a0=0 a1=0 a2=%x a3=0 items=0 "
+                                    "ppid=1 pid=2 auid=0 uid=0 gid=0 "
+                                    'tty=(none) ses=1 comm="x" exe="/x"',
+                                    "a2")
+
+    # PROT_ and the access mode are probed with another bit already set.
+    # Both renderers answer PROT_NONE / F_OK when none of the low three
+    # bits is on, so a bit probed on its own above that mask comes back as
+    # the zero name and looks unknown: PROT_SEM reported as PROT_NONE at
+    # 0x8 and as PROT_SEM at 0xc.  Probing 0x8 alone would have left it
+    # out of the table.
+    prot = {}
+    if need(MMAN_COMMON_H):
+        for name, val in defines(MMAN_COMMON_H, "PROT_").items():
+            prot["PROT_" + name] = val
+    # mmap and mprotect do NOT share a table inside libaudit: PROT_SEM is
+    # in the first and not the second.  Measured; one table for both is
+    # wrong for every mmap with bit 3 set.
+    res["protFlag"] = bitflags(
+        "mprotect protection", prot, "SYSCALL",
+        "arch=c000003e syscall=10 success=yes exit=0 a0=0 a1=0 "
+        "a2=%x a3=0 items=0 ppid=1 pid=2 auid=0 uid=0 gid=0 "
+        'tty=(none) ses=1 comm="x" exe="/x"', "a2", base=4)
+    res["protFlagMmap"] = bitflags(
+        "mmap protection", prot, "SYSCALL",
+        "arch=c000003e syscall=9 success=yes exit=0 a0=0 a1=0 "
+        "a2=%x a3=0 items=0 ppid=1 pid=2 auid=0 uid=0 gid=0 "
+        'tty=(none) ses=1 comm="x" exe="/x"', "a2", base=4)
+
+    acc = {"R_OK": 4, "W_OK": 2, "X_OK": 1}
+    res["accessMode"] = bitflags("access mode", acc, "SYSCALL",
+                                 "arch=c000003e syscall=21 success=yes "
+                                 "exit=0 a0=0 a1=%x a2=0 a3=0 items=0 "
+                                 "ppid=1 pid=2 auid=0 uid=0 gid=0 "
+                                 'tty=(none) ses=1 comm="x" exe="/x"', "a1",
+                                 base=1)
+    return res
 
 
 # ------------------------------------------------------------- emission
@@ -635,6 +857,9 @@ def main():
     flists, agfl = filterlists()
     oflags, agof = openflags()
     mflags, agmf = mapflags()
+    args64, nargs64 = syscall_args(ARCH_X8664, sc64)
+    args32, nargs32 = syscall_args(ARCH_I386, sc32)
+    small = arg_tables()
 
     parts = ["""// Code generated by t/tables.py from external sources.  DO NOT EDIT.
 //
@@ -711,6 +936,39 @@ package main
         "mapFlagName", mflags,
         "mmap flags, one bit at a time from the three mman headers "
         "against ausearch: %d of %d agreed." % (agmf, len(mflags))))
+    parts.append(go_map_str_int(
+        "argInterpX8664", args64,
+        "Which syscall arguments ausearch interprets on x86_64, as a "
+        "bitmask over a0..a3: %d pairs.  a0..a3 are the one part of the "
+        "format with no self-describing structure, and a pair auditp "
+        "does not implement has to be REFUSED rather than printed as a "
+        "number, because printing 0x2a where ausearch prints a signal "
+        "name is a wrong answer and not a gap." % nargs64))
+    parts.append(go_map_str_int(
+        "argInterpI386", args32,
+        "The same for i386: %d pairs." % nargs32))
+    for key, label, comment in (
+            ("sockFamily", "sockFamilyName",
+             "Socket address families as ausearch names them, which is "
+             "the AF_ constant lower-cased with the prefix dropped, and "
+             "local rather than unix for AF_UNIX"),
+            ("sockType", "sockTypeName", "Socket types, SOCK_*"),
+            ("sockProto", "sockProtoName",
+             "IP protocol numbers, from /etc/protocols"),
+            ("seekWhence", "seekWhenceName", "lseek whence, SEEK_*"),
+            ("protFlag", "protFlagName",
+             "mprotect protection bits, PROT_*.  mmap has a different "
+             "table and gets its own below"),
+            ("protFlagMmap", "protFlagMmapName",
+             "mmap protection bits, which include PROT_SEM where "
+             "mprotect's do not"),
+            ("accessMode", "accessModeName",
+             "access() mode bits, R_OK W_OK X_OK")):
+        tbl, ag = small[key]
+        parts.append(go_map_int_str(label, tbl,
+                                    "%s.  %d of %d agreed with the "
+                                    "independent source."
+                                    % (comment, ag, len(tbl))))
     parts.append(go_map_int_str(
         "signalName", sigs,
         "Signal names as ausearch prints them, probed for 0 through 128 "
@@ -758,6 +1016,13 @@ package main
     rep.write("open-flag-two-source-agree %d\n" % agof)
     rep.write("map-flag %d\n" % len(mflags))
     rep.write("map-flag-two-source-agree %d\n" % agmf)
+    rep.write("arg-pairs-x86_64 %d\n" % nargs64)
+    rep.write("arg-pairs-i386 %d\n" % nargs32)
+    for key in ("sockFamily", "sockType", "sockProto", "seekWhence",
+                "protFlag", "protFlagMmap", "accessMode"):
+        tbl, ag = small[key]
+        rep.write("%s %d\n" % (key, len(tbl)))
+        rep.write("%s-two-source-agree %d\n" % (key, ag))
     # A name difference between two sources for the same number is an
     # alias and is recorded, not fatal; a number that moves is fatal.  The
     # committed t/tables.expect pins the exact set, so an eighth alias

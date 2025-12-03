@@ -171,6 +171,9 @@ func (ip *Interp) FieldFlag(r *Record, f *Field) (string, string) {
 		return archText(raw), ip.claim("arch")
 	case f.Name == "syscall":
 		return ip.syscall(r, raw), ip.claim("syscall")
+	case len(f.Name) == 2 && f.Name[0] == 'a' && f.Name[1] >= '0' &&
+		f.Name[1] <= '3' && (r.Type == "SYSCALL" || r.Type == "SECCOMP"):
+		return ip.arg(r, f, int(f.Name[1]-'0'), raw)
 	case f.Name == "proctitle":
 		return proctitleText(decodeEscaped(f)), ip.claim("proctitle")
 	case f.Name == "mode" && r.Type != "MQ_OPEN":

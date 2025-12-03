@@ -21,17 +21,19 @@ and both asserted by the suite:
   question does not arise; all 280 of the rest are reversed, with no
   exceptions.  The index emitted here is therefore counted from the end.
 
-  The timestamp is printed in local time, so the comparison is run under
-  TZ=UTC, where there is no ambiguous hour to map back through.
+  The timestamp is printed in local time.  The zone comes from the
+  environment and is not forced here: t/run.sh sets TZ once for both
+  sides and runs the comparison a second time in a zone with a
+  half-hour offset.  Forcing it here was a real defect, because auditp
+  was left in the shell's zone and every @time field disagreed.
 """
 
 import argparse
-import calendar
 import io
-import os
 import re
 import subprocess
 import sys
+import time
 
 AUSEARCH = "/usr/sbin/ausearch"
 
@@ -147,12 +149,10 @@ def main():
     ap.add_argument("--interpret", action="store_true")
     args = ap.parse_args()
 
-    env = dict(os.environ)
-    env["TZ"] = "UTC"
     cmd = [AUSEARCH, "-if", args.log]
     if args.interpret:
         cmd.insert(1, "-i")
-    p = subprocess.run(cmd, capture_output=True, env=env)
+    p = subprocess.run(cmd, capture_output=True)
     if p.returncode not in (0, 1):
         sys.stderr.write("ausearch exited %d: %s\n"
                          % (p.returncode, p.stderr.decode(errors="replace")))
@@ -193,7 +193,14 @@ def main():
                     int(m.group(2)), int(m.group(3)), int(m.group(4)),
                     int(m.group(5)), int(m.group(6)), int(m.group(7)),
                     m.group(8), m.group(9))
-                secs = calendar.timegm((yr, mo, dy, hh, mm, ss, 0, 0, 0))
+                # Local time back to epoch, in whatever zone ausearch
+                # just printed in.  time.mktime and not calendar.timegm,
+                # which is only right when the zone is UTC and silently
+                # moved every event key by 5h30m when the suite started
+                # running this a second time in Asia/Kolkata.  isdst=-1
+                # asks libc; both zones the suite uses are DST-free, so
+                # there is no ambiguous hour to guess at.
+                secs = int(time.mktime((yr, mo, dy, hh, mm, ss, 0, 0, -1)))
                 stamp = "%02d/%02d/%04d %02d:%02d:%02d.%s" % (
                     mo, dy, yr, hh, mm, ss, ms)
             else:

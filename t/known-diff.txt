@@ -1,5 +1,9 @@
 # Fields where auditp's output is deliberately not ausearch's.  Two kinds,
-# and each line is KEY <TAB> RECORD-INDEX <TAB> FIELD.  The suite requires
+# and each line is
+# FIELD <TAB> WHAT AUDITP PRINTS <TAB> WHAT AUSEARCH PRINTS.  Keyed by the
+# values and not by position, because the serials move whenever the corpus
+# is regenerated and a recorded difference would silently become a failure
+# while a new one silently became exempt.  The suite requires
 # the set to be exactly the one listed here: a new entry is a failure,
 # because the next difference may not be one of these two kinds, and an
 # entry that stops firing is a failure too, because a stale exemption is
@@ -13,7 +17,7 @@
 # hex-encodes the argument as 20 and auditp reads back one space.  There
 # is nothing either side can do about it; ausearch's -i output is not a
 # round-trippable format and this is the record that proves it.
-1700000067.130:1490	0	a2
+a2	 	
 #
 # 2. ausearch is wrong and auditp is not.
 #
@@ -24,4 +28,5 @@
 # prints SIGPWR and takes the disagreement, because copying a defect into
 # a second implementation is how it becomes the format.  Found by the
 # two-source table check, which is the only thing here that could have.
-1700000075.076:1548	0	sig
+sig	SIGPWR	IGPWR
+a1	SIGPWR	IGPWR

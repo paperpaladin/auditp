@@ -225,7 +225,7 @@ func writeCensus(w io.Writer, st *Stats) {
 	dump(w, "type", st.Types)
 	dump(w, "name", st.Names)
 	dump(w, "interp", st.Interp)
-	dump(w, "refused", st.Refused)
+	dump(w, "unclaimed", st.Refused)
 }
 
 func sortedKeys(m map[string]int) []string {

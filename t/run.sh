@@ -10,6 +10,19 @@ set -u
 
 cd "$(dirname "$0")/.." || exit 2
 
+# Both sides print the timestamp in local time, so both sides have to be
+# in the same zone or every @time field disagrees.  ausearch was being
+# forced to UTC inside t/oracle.py while auditp inherited the shell's
+# zone, and the whole comparison was green only on a machine whose zone
+# was already UTC: on this one it reported 888 wrong fields.  The zone is
+# set here, once, for everything the suite runs.
+TZ=UTC; export TZ
+# The second zone, for the check below that the formatter is reading the
+# zone at all.  +05:30 moves the minutes as well as the hour, and it rolls
+# the corpus's 22:13 UTC timestamps into the next day, so a formatter
+# stuck on UTC cannot accidentally agree.
+TZALT=${TZALT:-Asia/Kolkata}
+
 AUSEARCH=/usr/sbin/ausearch
 [ -x "$AUSEARCH" ] || {
 	echo "auditp: $AUSEARCH is not executable.  It is the only oracle for" >&2
@@ -192,10 +205,62 @@ if [ -s "$T/orci.flat" ]; then
 	fi
 	# A floor on the translations, because 0 wrong is also what a build
 	# with every interpreter deleted would report.
-	floor "fields translated and agreeing" 5000 "${ai:-0}"
+	floor "fields translated and agreeing" 9000 "${ai:-0}"
 	# And a ceiling on the refusals, so the gap cannot quietly grow.
-	if [ "${rf:-99999}" -le 3000 ]; then ok "refusals: $rf (ceiling 3000)"
-	else no "refusals grew to $rf, ceiling is 3000"; fi
+	# A ceiling, so the gap cannot quietly grow, and a floor on the
+	# translations, because 0 wrong is also what a build with every
+	# interpreter deleted would report.
+	if [ "${rf:-99999}" -le 40 ]; then ok "refusals: $rf (ceiling 40)"
+	else no "refusals grew to $rf, ceiling is 40"; fi
+	# Each interpreter has to have fired.  An interpreter the corpus
+	# never reaches is untested however many other fields agree.
+	"$AUDITP" -o census -i "$CORPUS" | sed -n 's/^interp //p' > "$T/interp.txt"
+	nint=$(wc -l < "$T/interp.txt")
+	floor "distinct interpreters that fired" 35 "$nint"
+	for want in arg-dirfd arg-openflags arg-mode4 arg-uid arg-gid \
+	            arg-signal arg-prot arg-prot-mmap arg-mapflags \
+	            arg-sockfamily arg-socktype arg-sockproto arg-access \
+	            arg-whence arg-exitcode arg-plain escaped execve-arg \
+	            nested proctitle cap seccomp-code family list mode \
+	            oflag mapflags sig res exit arch syscall uid gid ses \
+	            @time @type; do
+		grep -q "^$want " "$T/interp.txt" || no "interpreter $want never fired on the corpus"
+	done
+	ok "every named interpreter fired at least once"
+
+	# The same comparison in a second zone.  Everything above runs under
+	# TZ=UTC, where a formatter that ignored the zone entirely and
+	# printed UTC would agree with ausearch on every record and be wrong
+	# on every machine outside UTC.  Three things are asserted: the two
+	# tools agree in the second zone as well, auditp's own output moved
+	# when the zone changed, and ausearch's moved too (otherwise the
+	# agreement is between two programs that both ignored TZ).
+	# auditp's flat rows carry an i/p flag column that ausearch's have
+	# no equivalent of, and ausearch prints an event's records in the
+	# reverse of log order, so both sides are cut down to
+	# key, index, value and sorted.
+	ourtime() { awk -F'\t' '$3=="@time"{print $1"\t"$2"\t"$5}' "$1" | sort; }
+	orctime() { awk -F'\t' '$3=="@time"{print $1"\t"$2"\t"$4}' "$1" | sort; }
+	ourtime "$T/oursi.flat" > "$T/utc.ours"
+	orctime "$T/orci.flat"  > "$T/utc.orc"
+	TZ=$TZALT "$AUDITP" -o flat -i "$CORPUS" > "$T/altraw.ours"
+	TZ=$TZALT python3 t/oracle.py --interpret "$CORPUS" \
+		> "$T/altraw.orc" 2>"$T/altraw.err"
+	ourtime "$T/altraw.ours" > "$T/alt.ours"
+	orctime "$T/altraw.orc"  > "$T/alt.orc"
+	na=$(wc -l < "$T/alt.ours")
+	floor "@time fields compared in $TZALT" 800 "$na"
+	if cmp -s "$T/alt.ours" "$T/alt.orc"; then
+		ok "$na @time fields identical to ausearch in $TZALT too"
+	else
+		no "@time differs from ausearch under TZ=$TZALT: $(diff "$T/alt.ours" "$T/alt.orc" | head -2 | tr '\n' ' ')"
+	fi
+	cmp -s "$T/utc.ours" "$T/alt.ours" \
+		&& no "auditp printed the same @time in UTC and $TZALT: it is not reading the zone" \
+		|| ok "auditp's @time moved when the zone did"
+	cmp -s "$T/utc.orc" "$T/alt.orc" \
+		&& no "ausearch printed the same @time in UTC and $TZALT, so this check compares nothing" \
+		|| ok "ausearch's @time moved when the zone did"
 else
 	no "t/oracle.py --interpret produced nothing: $(head -2 "$T/orci.err")"
 fi
