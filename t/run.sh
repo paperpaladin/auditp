@@ -71,6 +71,13 @@ else
 	                                || no "ground truth regenerates differently"
 	cmp -s "$T/hostile.log" "$HOSTILE" && ok "hostile corpus regenerates byte for byte" \
 	                                || no "hostile corpus regenerates differently"
+	# The interleaved corpus was being regenerated into the scratch
+	# directory and then never compared with the committed one, so the
+	# single file whose point is that its events are not contiguous
+	# could have drifted without anything noticing.
+	cmp -s "$T/inter.log" t/corpus/interleaved.log \
+	    && ok "interleaved corpus regenerates byte for byte" \
+	    || no "interleaved corpus regenerates differently"
 	cmp -s "$T/counts.txt" t/corpus/counts.txt && ok "construct counts regenerate" \
 	                                || no "construct counts regenerate differently"
 fi
@@ -100,7 +107,11 @@ floor "seccomp records"      80 "$(cnt seccomp)"
 floor "errno exits"          25 "$(cnt errno-exit)"
 floor "hostile text values"  12 "$(cnt edge-text)"
 
-ntyp=$(cut -d" " -f1 "$CORPUS" | sed "s/^node=[^ ]* //" | sort -u | wc -l)
+# The node= prefix has to come off before the cut and not after it: cut
+# leaves "node=node-a" with no space in it for the sed to match, so the
+# two prefixed hosts were being counted as two record types and this
+# printed 54 for a corpus holding 52.
+ntyp=$(sed "s/^node=[^ ]* //" "$CORPUS" | cut -d" " -f1 | sort -u | wc -l)
 floor "distinct record types" 45 "$ntyp"
 
 # --- 3. the parser loses nothing, and the oracle, field by field -----
