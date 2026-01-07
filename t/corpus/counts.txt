@@ -1,8 +1,8 @@
-lines 888
-truth-rows 1183
+lines 903
+truth-rows 1213
 anom-abend 16
 avc 12
-bare 10196
+bare 10541
 bpf 40
 config-change 4
 edge-cap 7
@@ -18,7 +18,7 @@ event-openat 60
 execve 4
 hex-encoded 100
 kill-signal 16
-mmap-prot 25
+mmap-prot 40
 multi-record-events 125
 nested-msg 50
 netfilter-cfg 6
@@ -29,13 +29,13 @@ path-items 89
 path-mode 60
 proctitle 125
 prose-prefix 13
-quoted 1091
-records 888
+quoted 1121
+records 903
 seccomp 89
 sockaddr 5
 socket-family 20
 syscall-i386 24
-syscall-records 272
+syscall-records 287
 syscall-x86_64 65
 type-zoo 23
 uid-value 8

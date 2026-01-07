@@ -243,7 +243,12 @@ ARCH32 = "40000003"
 # Open flags, protection bits, address families, signals and errnos, all
 # kernel constants.
 O_FLAGS = ["0", "1", "2", "42", "241", "80000", "80042", "C1", "200000"]
-PROT = ["0", "1", "3", "5", "7"]
+# 8, 9 and c are PROT_SEM, which lives outside the three-bit mask the
+# renderer tests for PROT_NONE.  Without 8 on its own the suite could
+# not tell a renderer that masks correctly from one that does not: the
+# arg-prot-no-none mutant survived 58 mutants and a green suite
+# because no record in the corpus set that bit alone.
+PROT = ["0", "1", "3", "5", "7", "8", "9", "c"]
 MAPF = ["2", "22", "32", "812", "8022"]
 MODES = ["0100644", "0100755", "040755", "0120777", "0140777", "010644",
          "060660", "020666", "0104755", "0102644", "0101644", "0100000"]
