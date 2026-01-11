@@ -80,6 +80,12 @@ arg-openmode-unconditional@@@args.go@@@		if flags, ok := ip.argValue(r, openFlag
 arg-prot-tables-shared@@@args.go@@@	case argProtMmap:\n		return protText(n, protFlagMmapName), ip.claim(what)@@@	case argProtMmap:\n		return protText(n, protFlagName), ip.claim(what)
 arg-prot-no-none@@@args.go@@@func protText(n uint64, tab map[int]string) string {\n	return bitsOrZero(n, tab, 7, "PROT_NONE")@@@func protText(n uint64, tab map[int]string) string {\n	return bitsOrZero(n, tab, 0xffffffff, "PROT_NONE")
 arg-unimpl-printed-anyway@@@args.go@@@	} else if kind == argPlain {\n		kind = argUnimpl\n	}@@@	}
-arg-table-not-per-arch@@@args.go@@@	if !argInterpreted(arch, sysname, idx) {\n		kind = argPlain\n	}@@@	if false {\n		kind = argPlain\n	}
+# arg-table-not-per-arch used to replace the argInterpreted call with
+# "if false", which left arch unused and did not compile, so it was
+# counted as NOBUILD and tested nothing for as long as it sat here.
+# It points i386 at the x86_64 table instead, which is the defect it
+# was meant to be: the two tables disagree about which arguments are
+# interpreted at all, not only about what the syscall numbers mean.
+arg-table-not-per-arch@@@args.go@@@	case "i386":\n		tab = argInterpI386@@@	case "i386":\n		tab = argInterpX8664
 # --- the timestamp zone ---
 time-forced-to-utc@@@interp.go@@@	t := time.Unix(r.Secs, 0)@@@	t := time.Unix(r.Secs, 0).UTC()
