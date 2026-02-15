@@ -89,3 +89,7 @@ arg-unimpl-printed-anyway@@@args.go@@@	} else if kind == argPlain {\n		kind = ar
 arg-table-not-per-arch@@@args.go@@@	case "i386":\n		tab = argInterpI386@@@	case "i386":\n		tab = argInterpX8664
 # --- the timestamp zone ---
 time-forced-to-utc@@@interp.go@@@	t := time.Unix(r.Secs, 0)@@@	t := time.Unix(r.Secs, 0).UTC()
+# --- the timestamp as written ---
+stamp-normalised-to-three-digits@@@parse.go@@@	fmt.Fprintf(&b, "type=%s msg=audit(%d", r.Type, r.Secs)\n	if r.MsDigits >= 0 {\n		b.WriteByte('.')\n		if r.MsDigits > 0 {\n			fmt.Fprintf(&b, "%0*d", r.MsDigits, r.Millis)\n		}\n	}\n	fmt.Fprintf(&b, ":%d):", r.Serial)@@@	fmt.Fprintf(&b, "type=%s msg=audit(%d.%03d:%d):", r.Type, r.Secs, r.Millis, r.Serial)
+stamp-fraction-required@@@parse.go@@@	dot := bytes.IndexByte(s[:colon], '.')@@@	dot := bytes.IndexByte(s[:colon], '.')\n	if dot < 0 {\n		return errNotRecord\n	}
+stamp-four-digits-accepted@@@parse.go@@@		if len(msPart) > 3 {\n			return errNotRecord\n		}@@@		if false {\n			return errNotRecord\n		}

@@ -133,17 +133,18 @@ func (f *Field) Value() []byte {
 
 // Record is one line of the log.
 type Record struct {
-	Line    int    // 1-based line number in the input
-	Node    string // the node= prefix, empty when absent
-	Type    string // as written: "SYSCALL", or "UNKNOWN[1100]"
-	TypeNum int    // resolved number, -1 when the type is a name we do not know
-	Secs    int64
-	Millis  int
-	Serial  uint64
-	Prefix  []byte // bytes before the first field: AVC's "avc:  denied  { x } for  "
-	Fields  []Field
-	Suffix  []byte // bytes after the last field
-	Raw     []byte // the whole line, without the newline
+	Line     int    // 1-based line number in the input
+	Node     string // the node= prefix, empty when absent
+	Type     string // as written: "SYSCALL", or "UNKNOWN[1100]"
+	TypeNum  int    // resolved number, -1 when the type is a name we do not know
+	Secs     int64
+	Millis   int
+	MsDigits int // digits between the dot and the colon, -1 when there was no dot
+	Serial   uint64
+	Prefix   []byte // bytes before the first field: AVC's "avc:  denied  { x } for  "
+	Fields   []Field
+	Suffix   []byte // bytes after the last field
+	Raw      []byte // the whole line, without the newline
 }
 
 // Key is the (node, timestamp, serial) triple the kernel uses to say that
@@ -327,24 +328,54 @@ func ParseLine(line []byte, lineno int) (*Record, error) {
 	return r, nil
 }
 
-// parseStamp reads SECS.MSEC:SERIAL.  The millisecond field is exactly three
-// digits in everything the kernel writes, but it is parsed as "whatever is
-// between the dot and the colon" so that a hand-written record with two
-// digits is read rather than rejected; the count is kept so the writer can
-// put back what it found.
+// parseStamp reads SECS[.MSEC]:SERIAL.
+//
+// The fraction is a count of milliseconds and not a decimal fraction:
+// ausearch prints audit(1700000000.1:11) as .001, so it is read with
+// atoi and not scaled.  Three things here are ausearch's behaviour
+// rather than a choice, each measured by handing it one record:
+//
+//	The dot and the fraction are optional.  audit(1700000000:7) is a
+//	record with zero milliseconds.  auditp used to refuse it, which is
+//	an over-refusal: the per-line comparison against ausearch on the
+//	hostile corpus is what found it, after the corpus had been sitting
+//	in the tree unread.
+//
+//	An empty fraction, audit(1700000000.:9), is also zero.
+//
+//	Four digits or more is refused.  ausearch reads at most three and
+//	then wants the colon, so audit(1700000000.1234:14) is not a record
+//	to it, and a reader that accepted it would assemble an event under
+//	a key ausearch has no record for.
+//
+// MsDigits is how many digits were there, so Unparse can put back what
+// it found rather than normalising to three.  The old comment claimed
+// that and the writer hardcoded %03d, so a two-digit fraction did not
+// round trip.
 func parseStamp(s []byte, r *Record) error {
-	dot := bytes.IndexByte(s, '.')
 	colon := bytes.LastIndexByte(s, ':')
-	if dot < 0 || colon < 0 || colon < dot {
+	if colon < 0 {
 		return errNotRecord
 	}
-	secs, ok := atoiBytes(s[:dot])
+	dot := bytes.IndexByte(s[:colon], '.')
+	secPart := s[:colon]
+	var msPart []byte
+	if dot >= 0 {
+		secPart = s[:dot]
+		msPart = s[dot+1 : colon]
+		if len(msPart) > 3 {
+			return errNotRecord
+		}
+	}
+	secs, ok := atoiBytes(secPart)
 	if !ok {
 		return errNotRecord
 	}
-	ms, ok := atoiBytes(s[dot+1 : colon])
-	if !ok {
-		return errNotRecord
+	ms := uint64(0)
+	if len(msPart) > 0 {
+		if ms, ok = atoiBytes(msPart); !ok {
+			return errNotRecord
+		}
 	}
 	serial, ok := atoiBytes(s[colon+1:])
 	if !ok {
@@ -352,6 +383,10 @@ func parseStamp(s []byte, r *Record) error {
 	}
 	r.Secs = int64(secs)
 	r.Millis = int(ms)
+	r.MsDigits = -1
+	if dot >= 0 {
+		r.MsDigits = len(msPart)
+	}
 	r.Serial = uint64(serial)
 	return nil
 }
@@ -380,7 +415,18 @@ func (r *Record) Unparse() []byte {
 		b.WriteString(r.Node)
 		b.WriteByte(' ')
 	}
-	fmt.Fprintf(&b, "type=%s msg=audit(%d.%03d:%d):", r.Type, r.Secs, r.Millis, r.Serial)
+	// The fraction goes back out with the number of digits it came in
+	// with, and with no dot at all when there was none.  Normalising it
+	// to three would break the round trip, which is the only check that
+	// sees a byte the parser quietly dropped.
+	fmt.Fprintf(&b, "type=%s msg=audit(%d", r.Type, r.Secs)
+	if r.MsDigits >= 0 {
+		b.WriteByte('.')
+		if r.MsDigits > 0 {
+			fmt.Fprintf(&b, "%0*d", r.MsDigits, r.Millis)
+		}
+	}
+	fmt.Fprintf(&b, ":%d):", r.Serial)
 	b.Write(r.Prefix)
 	for i := range r.Fields {
 		f := &r.Fields[i]

@@ -795,6 +795,14 @@ HOSTILE = [
     b"type=BPF msg=audit(1700000000.000:9): 123=4 prog-id=1 op=LOAD",
     # A NUL byte in the middle of a line.
     b"type=BPF msg=audit(1700000000.000:10): prog-id=1 op=LO\x00AD",
+    # The fractional part of the timestamp, at the three lengths that
+    # decide whether it is a record at all.  ausearch reads at most three
+    # digits and then wants the colon, so the four-digit one is not a
+    # record to it; the empty one and the two-digit one are, and the
+    # two-digit one has to come back out with two digits and not three.
+    b"type=BPF msg=audit(1700000000.1234:11): prog-id=1 op=LOAD",
+    b"type=BPF msg=audit(1700000000.:12): prog-id=1 op=LOAD",
+    b"type=BPF msg=audit(1700000000.12:13): prog-id=1 op=LOAD",
 ]
 
 

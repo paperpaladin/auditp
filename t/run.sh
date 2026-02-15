@@ -323,6 +323,76 @@ else
 	no "t/escaped.py produced nothing: $(head -2 "$T/esc.err")"
 fi
 
+# --- 9. malformed input, which nothing was reading --------------------
+# hostile.log is generated, compared with its generator, and until now
+# never handed to the parser.  Each line goes to auditp alone and to
+# ausearch alone and the two answers to "is this a record" are compared.
+#
+# The direction that matters is over-refusal.  A line ausearch reads and
+# auditp does not is a gap in the parser wearing the clothes of caution,
+# and it is the failure this corpus exists to find: the first run of this
+# check found one, a timestamp written without a fractional part.
+"$AUDITP" -o census "$HOSTILE" > "$T/host.census" 2>"$T/host.err"
+rc=$?
+[ "$rc" -eq 0 ] && ok "auditp exits 0 on the hostile corpus and counts the skips" \
+                || no "auditp exited $rc on the hostile corpus without -strict"
+hu=$(awk '$1=="unparseable"{print $2}' "$T/host.census")
+hr=$(awk '$1=="records"{print $2}' "$T/host.census")
+"$AUDITP" -strict -o census "$HOSTILE" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 1 ] && ok "-strict turns the first malformed line into exit 1" \
+                || no "-strict exited $rc, not 1, on $hu malformed lines"
+"$AUDITP" "$T/no-such-file" >/dev/null 2>&1
+[ "$?" -eq 1 ] && ok "a file that will not open is exit 1" \
+               || no "a missing file did not give exit 1"
+"$AUDITP" -o nosuchform "$CORPUS" >/dev/null 2>&1
+[ "$?" -eq 2 ] && ok "an unknown -o form is exit 2" \
+               || no "an unknown -o form did not give exit 2"
+"$AUDITP" >/dev/null 2>&1
+[ "$?" -eq 2 ] && ok "no FILE argument is exit 2" \
+               || no "a missing FILE argument did not give exit 2"
+
+nh=0; hagree=0; overref=0; underref=0; nrt=0
+overlist=""; underlist=""; rtbad=""
+while IFS= read -r line; do
+	nh=$((nh + 1))
+	printf '%s\n' "$line" > "$T/h.log"
+	ours=$("$AUDITP" -o flat "$T/h.log" 2>/dev/null | wc -l)
+	theirs=$("$AUSEARCH" -if "$T/h.log" 2>/dev/null | grep -c '^type=')
+	o=0; [ "$ours" -gt 0 ] && o=1
+	t=0; [ "$theirs" -gt 0 ] && t=1
+	if [ "$o" -eq "$t" ]; then
+		hagree=$((hagree + 1))
+	elif [ "$t" -eq 1 ]; then
+		overref=$((overref + 1)); overlist="$overlist $nh"
+	else
+		underref=$((underref + 1)); underlist="$underlist $nh"
+	fi
+	# A line the parser accepts has to come back out byte for byte here
+	# too.  This is the check that caught the writer normalising a
+	# timestamp: a record written audit(1700000000:7), with no fraction
+	# at all, was printed back with .000 in it, and the main corpus
+	# cannot see that because every record in it has three digits.
+	if [ "$o" -eq 1 ]; then
+		nrt=$((nrt + 1))
+		"$AUDITP" -o unparse "$T/h.log" > "$T/h.rt" 2>/dev/null
+		cmp -s "$T/h.log" "$T/h.rt" || rtbad="$rtbad $nh"
+	fi
+done < "$HOSTILE"
+[ -z "$rtbad" ] && ok "$nrt malformed lines that do parse come back out byte for byte" \
+                || no "malformed lines that parse but do not round trip:$rtbad"
+floor "malformed lines put to both parsers" 23 "$nh"
+if [ "$overref" -eq 0 ]; then
+	ok "no line ausearch reads is refused by auditp ($hagree of $nh agree)"
+else
+	no "auditp refuses $overref lines ausearch reads, at lines:$overlist"
+fi
+if [ "$underref" -eq 0 ]; then
+	ok "no line ausearch refuses is read by auditp"
+else
+	no "auditp reads $underref lines ausearch refuses, at lines:$underlist"
+fi
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
