@@ -93,3 +93,6 @@ time-forced-to-utc@@@interp.go@@@	t := time.Unix(r.Secs, 0)@@@	t := time.Unix(r.
 stamp-normalised-to-three-digits@@@parse.go@@@	fmt.Fprintf(&b, "type=%s msg=audit(%d", r.Type, r.Secs)\n	if r.MsDigits >= 0 {\n		b.WriteByte('.')\n		if r.MsDigits > 0 {\n			fmt.Fprintf(&b, "%0*d", r.MsDigits, r.Millis)\n		}\n	}\n	fmt.Fprintf(&b, ":%d):", r.Serial)@@@	fmt.Fprintf(&b, "type=%s msg=audit(%d.%03d:%d):", r.Type, r.Secs, r.Millis, r.Serial)
 stamp-fraction-required@@@parse.go@@@	dot := bytes.IndexByte(s[:colon], '.')@@@	dot := bytes.IndexByte(s[:colon], '.')\n	if dot < 0 {\n		return errNotRecord\n	}
 stamp-four-digits-accepted@@@parse.go@@@		if len(msPart) > 3 {\n			return errNotRecord\n		}@@@		if false {\n			return errNotRecord\n		}
+# --- the reader ---
+long-line-abandons-file@@@read.go@@@		if over {\n			st.Overlong++\n			st.Unparseable++@@@		if over {\n			return nil, errLineTooLong\n		}\n		if false {\n			st.Overlong++\n			st.Unparseable++
+reader-strips-carriage-return@@@read.go@@@	if n := len(b); n > 0 && b[n-1] == '\\n' {\n		b = b[:n-1]\n	}\n	return b@@@	if n := len(b); n > 0 && b[n-1] == '\\n' {\n		b = b[:n-1]\n	}\n	if n := len(b); n > 0 && b[n-1] == '\\r' {\n		b = b[:n-1]\n	}\n	return b

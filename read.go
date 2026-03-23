@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"os"
 )
@@ -14,6 +15,7 @@ type Stats struct {
 	Lines       int
 	Records     int
 	Unparseable int
+	Overlong    int // lines longer than maxLine, skipped and counted
 	Events      int
 	Fields      int
 	SubFields   int
@@ -99,22 +101,36 @@ type Event struct {
 // however far away it is: the kernel interleaves records of concurrent
 // events and a correlator that only looks at adjacent lines splits them.
 func Read(rd io.Reader, st *Stats, strict bool) ([]*Event, error) {
-	sc := bufio.NewScanner(rd)
-	// An audit record can be long: EXECVE with many arguments, or a hex
-	// proctitle.  64 KB is the kernel's own ceiling (MAX_AUDIT_MESSAGE_LENGTH
-	// is 8970, but auditd concatenates), so 1 MB is slack and still bounded.
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	br := bufio.NewReaderSize(rd, 64*1024)
 	var events []*Event
 	index := map[string]*Event{}
-	for sc.Scan() {
+	for {
+		line, over, err := readLine(br)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
 		st.Lines++
-		line := sc.Bytes()
+		// A line too long for the buffer is skipped and counted, not
+		// a reason to abandon the file.  bufio.Scanner's answer was to
+		// return ErrTooLong and stop, so one 2 MB line cost every
+		// record after it; ausearch reads those records and the
+		// truncation sweep is what noticed.
+		if over {
+			st.Overlong++
+			st.Unparseable++
+			if strict {
+				return nil, &LineError{Line: st.Lines,
+					Err: errLineTooLong}
+			}
+			continue
+		}
 		if len(line) == 0 {
 			continue
 		}
-		buf := make([]byte, len(line))
-		copy(buf, line)
-		r, err := ParseLine(buf, st.Lines)
+		r, err := ParseLine(line, st.Lines)
 		if err != nil {
 			st.Unparseable++
 			if strict {
@@ -133,10 +149,53 @@ func Read(rd io.Reader, st *Stats, strict bool) ([]*Event, error) {
 		}
 		ev.Records = append(ev.Records, r)
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
 	return events, nil
+}
+
+// maxLine bounds one record.  An audit record can be long: an EXECVE
+// with many arguments, or a hex proctitle.  The kernel's own ceiling is
+// MAX_AUDIT_MESSAGE_LENGTH, 8970 bytes, but auditd concatenates
+// continuation records, so 1 MB is slack and is still a bound.  An input
+// that is one 500 MB line is a denial of service and not a log.
+const maxLine = 1 << 20
+
+var errLineTooLong = errors.New("line longer than 1 MB")
+
+// readLine returns the next line without its newline, and whether it was
+// over maxLine, in which case the bytes are discarded and the caller
+// counts it.  The returned slice is freshly allocated: Record keeps it.
+func readLine(br *bufio.Reader) ([]byte, bool, error) {
+	var buf []byte
+	over := false
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if over || len(buf)+len(chunk) > maxLine {
+			over = true
+		} else {
+			buf = append(buf, chunk...)
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if err != nil {
+			if err == io.EOF && (len(buf) > 0 || over) {
+				return trimNewline(buf), over, nil
+			}
+			return nil, over, err
+		}
+		return trimNewline(buf), over, nil
+	}
+}
+
+// trimNewline takes off the newline and nothing else.  bufio.Scanner's
+// ScanLines also drops a carriage return before it; auditd does not write
+// one, and if something else did, dropping it would put a byte in the
+// input that the round trip cannot put back.
+func trimNewline(b []byte) []byte {
+	if n := len(b); n > 0 && b[n-1] == '\n' {
+		b = b[:n-1]
+	}
+	return b
 }
 
 // LineError names the line, because "malformed input" without a line number

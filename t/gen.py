@@ -803,6 +803,11 @@ HOSTILE = [
     b"type=BPF msg=audit(1700000000.1234:11): prog-id=1 op=LOAD",
     b"type=BPF msg=audit(1700000000.:12): prog-id=1 op=LOAD",
     b"type=BPF msg=audit(1700000000.12:13): prog-id=1 op=LOAD",
+    # A line that arrived through something that uses CRLF.  The
+    # carriage return is part of the last value and has to stay there:
+    # bufio.Scanner's line splitter drops it, and a dropped byte is a
+    # byte the round trip cannot put back.
+    b"type=BPF msg=audit(1700000000.000:14): prog-id=1 op=LOAD\r",
 ]
 
 

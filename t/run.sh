@@ -381,7 +381,7 @@ while IFS= read -r line; do
 done < "$HOSTILE"
 [ -z "$rtbad" ] && ok "$nrt malformed lines that do parse come back out byte for byte" \
                 || no "malformed lines that parse but do not round trip:$rtbad"
-floor "malformed lines put to both parsers" 23 "$nh"
+floor "malformed lines put to both parsers" 24 "$nh"
 if [ "$overref" -eq 0 ]; then
 	ok "no line ausearch reads is refused by auditp ($hagree of $nh agree)"
 else
@@ -392,6 +392,38 @@ if [ "$underref" -eq 0 ]; then
 else
 	no "auditp reads $underref lines ausearch refuses, at lines:$underlist"
 fi
+
+# --- 10. truncated and corrupted input --------------------------------
+# Byte prefixes, line-aligned prefixes, single-byte overwrites, and a
+# line longer than the reader's buffer.  What the sweep asserts is
+# narrow on purpose: no crash anywhere, and on line-aligned input, where
+# both tools see whole records, auditp must read every line and must not
+# refuse a record ausearch reads.  The disagreement counts on corrupted
+# lines are printed and bounded rather than required to be zero, because
+# there the two tools have different contracts and ausearch's is the
+# looser one.
+python3 t/truncate.py --auditp "$AUDITP" --log "$CORPUS" > "$T/trunc.txt" 2>&1
+rc=$?
+tr_() { awk -v k="$1" '$1==k{print $2; exit}' "$T/trunc.txt"; }
+if [ $rc -eq 0 ]; then
+	ok "truncation sweep: $(tr_ cases) cases, 0 crashes, 0 over-refusals, 0 misread"
+else
+	no "truncation sweep: $(tr_ crashes) crashes, $(tr_ overrefused) over-refusals, $(tr_ misread) misread"
+	sed -n '1,16p' "$T/trunc.txt"
+fi
+floor "truncation cases"        900 "$(tr_ cases)"
+floor "line-aligned prefixes"    60 "$(tr_ line-prefix)"
+floor "single-byte overwrites"  600 "$(tr_ flips)"
+# A ceiling, not a target.  131 corrupted lines are read by ausearch and
+# refused by auditp, all of them a byte moved inside the header, where
+# ausearch hunts for msg=audit( and auditp requires it where the format
+# puts it.
+fs=$(tr_ flip-stricter)
+if [ "${fs:-99999}" -le 140 ]; then ok "corrupt lines auditp refuses and ausearch reads: $fs (ceiling 140)"
+else no "auditp now refuses $fs corrupt lines ausearch reads, ceiling is 140"; fi
+fl=$(tr_ flip-looser)
+if [ "${fl:-99999}" -le 170 ]; then ok "corrupt lines auditp reads and ausearch refuses: $fl (ceiling 170)"
+else no "auditp now reads $fl corrupt lines ausearch refuses, ceiling is 170"; fi
 
 echo
 echo "$pass passed, $fail failed"

@@ -207,6 +207,7 @@ func writeCensus(w io.Writer, st *Stats) {
 	fmt.Fprintf(w, "lines           %d\n", st.Lines)
 	fmt.Fprintf(w, "records         %d\n", st.Records)
 	fmt.Fprintf(w, "unparseable     %d\n", st.Unparseable)
+	fmt.Fprintf(w, "overlong        %d\n", st.Overlong)
 	fmt.Fprintf(w, "events          %d\n", st.Events)
 	fmt.Fprintf(w, "fields          %d\n", st.Fields)
 	fmt.Fprintf(w, "subfields       %d\n", st.SubFields)
