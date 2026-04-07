@@ -96,3 +96,12 @@ stamp-four-digits-accepted@@@parse.go@@@		if len(msPart) > 3 {\n			return errNot
 # --- the reader ---
 long-line-abandons-file@@@read.go@@@		if over {\n			st.Overlong++\n			st.Unparseable++@@@		if over {\n			return nil, errLineTooLong\n		}\n		if false {\n			st.Overlong++\n			st.Unparseable++
 reader-strips-carriage-return@@@read.go@@@	if n := len(b); n > 0 && b[n-1] == '\\n' {\n		b = b[:n-1]\n	}\n	return b@@@	if n := len(b); n > 0 && b[n-1] == '\\n' {\n		b = b[:n-1]\n	}\n	if n := len(b); n > 0 && b[n-1] == '\\r' {\n		b = b[:n-1]\n	}\n	return b
+# --- the packed sockaddr ---
+saddr-port-little-endian@@@saddr.go@@@			b[4], b[5], b[6], b[7], int(b[2])<<8|int(b[3])), ip.claim("saddr-inet")@@@			b[4], b[5], b[6], b[7], int(b[3])<<8|int(b[2])), ip.claim("saddr-inet")
+saddr-inet-len-unchecked@@@saddr.go@@@		if len(b) < 16 {@@@		if len(b) < 2 {
+saddr-netlink-pid-big-endian@@@saddr.go@@@		pid := uint32(b[4]) | uint32(b[5])<<8 | uint32(b[6])<<16 | uint32(b[7])<<24@@@		pid := uint32(b[7]) | uint32(b[6])<<8 | uint32(b[5])<<16 | uint32(b[4])<<24
+saddr-abstract-nul-kept@@@saddr.go@@@		if p[0] == 0 {\n			p = p[1:]\n		}@@@		if false {\n			p = p[1:]\n		}
+saddr-v6-no-dotted-tail@@@saddr.go@@@	quad := best == 0 && (bestLen == 6 ||@@@	quad := false && (bestLen == 6 ||
+saddr-v6-shortest-run@@@saddr.go@@@			if curLen > bestLen {@@@			if curLen >= bestLen {
+saddr-v6-single-zero-collapsed@@@saddr.go@@@	if bestLen < 2 {@@@	if bestLen < 1 {
+saddr-unsupported-is-unknown@@@saddr.go@@@	return "{ saddr_fam=" + name + " (unsupported) }", ip.claim("saddr-unsupported")@@@	return fmt.Sprintf("unknown-family(%d)", fam), ip.claim("saddr-unsupported")

@@ -221,17 +221,18 @@ if [ -s "$T/orci.flat" ]; then
 	# A ceiling, so the gap cannot quietly grow, and a floor on the
 	# translations, because 0 wrong is also what a build with every
 	# interpreter deleted would report.
-	if [ "${rf:-99999}" -le 40 ]; then ok "refusals: $rf (ceiling 40)"
-	else no "refusals grew to $rf, ceiling is 40"; fi
+	if [ "${rf:-99999}" -le 20 ]; then ok "refusals: $rf (ceiling 20)"
+	else no "refusals grew to $rf, ceiling is 20"; fi
 	# Each interpreter has to have fired.  An interpreter the corpus
 	# never reaches is untested however many other fields agree.
 	"$AUDITP" -o census -i "$CORPUS" | sed -n 's/^interp //p' > "$T/interp.txt"
 	nint=$(wc -l < "$T/interp.txt")
-	floor "distinct interpreters that fired" 35 "$nint"
+	floor "distinct interpreters that fired" 40 "$nint"
 	for want in arg-dirfd arg-openflags arg-mode4 arg-uid arg-gid \
 	            arg-signal arg-prot arg-prot-mmap arg-mapflags \
 	            arg-sockfamily arg-socktype arg-sockproto arg-access \
 	            arg-whence arg-exitcode arg-plain escaped execve-arg \
+	            saddr-inet saddr-inet6 saddr-local saddr-netlink \
 	            nested proctitle cap seccomp-code family list mode \
 	            oflag mapflags sig res exit arch syscall uid gid ses \
 	            @time @type; do
@@ -392,6 +393,26 @@ if [ "$underref" -eq 0 ]; then
 else
 	no "auditp reads $underref lines ausearch refuses, at lines:$underlist"
 fi
+
+# --- 9b. the packed sockaddr ------------------------------------------
+# The corpus holds five SOCKADDR records and libaudit renders far more
+# shapes than that.  t/saddr.py builds 89, one per address family plus
+# the length boundaries and the IPv6 forms where two inet_ntop
+# implementations disagree, and puts each to both sides.
+python3 t/saddr.py --auditp "$AUDITP" > "$T/saddr.txt" 2>&1
+rc=$?
+sa_() { awk -v k="$1" '$1==k{print $2; exit}' "$T/saddr.txt"; }
+if [ $rc -eq 0 ]; then
+	ok "sockaddr: $(sa_ same) of $(sa_ cases) identical to ausearch, $(sa_ refused) refused, 0 different"
+else
+	no "sockaddr: $(sa_ differ) different, $(sa_ missing) unanswered"
+	sed -n '1,20p' "$T/saddr.txt"
+fi
+floor "sockaddr shapes compared"  85 "$(sa_ cases)"
+floor "sockaddr shapes identical" 80 "$(sa_ same)"
+# ax25, atmpvc and x25 are refused on purpose and nothing else is.
+if [ "$(sa_ refused)" -eq 5 ]; then ok "sockaddr refusals are the 5 recorded ones"
+else no "sockaddr refusals are now $(sa_ refused), not the 5 recorded"; fi
 
 # --- 10. truncated and corrupted input --------------------------------
 # Byte prefixes, line-aligned prefixes, single-byte overwrites, and a

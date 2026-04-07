@@ -621,6 +621,7 @@ SCHED_H = "/usr/include/linux/sched.h"
 FS_H = "/usr/include/linux/fs.h"
 MMAN_COMMON_H = "/usr/include/asm-generic/mman-common.h"
 PROTOCOLS = "/etc/protocols"
+SOCKET_H = "/usr/include/x86_64-linux-gnu/bits/socket.h"
 
 ARG_PROBE_VALUES = ["0", "1", "3", "10", "42", "ff", "ffffff9c"]
 ARCH_X8664 = "c000003e"
@@ -726,10 +727,19 @@ def arg_tables():
     import socket as S
     res = {}
 
+    # Python's socket module has no AF_IUCV, AF_RXRPC, AF_PHONET,
+    # AF_IEEE802154, AF_CAIF, AF_NFC, AF_KCM or AF_ISDN, and ausearch
+    # names all eight when it renders a SOCKADDR, so a table built from
+    # Python alone left thirteen families rendering as
+    # unknown-family(n) against a name.  The header is the other source
+    # and it has all fifty.
     fam = {}
     for a in dir(S):
         if a.startswith("AF_"):
             fam.setdefault(int(getattr(S, a)), a[3:].lower())
+    if need(SOCKET_H):
+        for name, val in defines(SOCKET_H, "PF_").items():
+            fam.setdefault(val, name.lower())
     res["sockFamily"] = small_table("socket family", fam, "SYSCALL",
                                     "arch=c000003e syscall=41 success=yes "
                                     "exit=0 a0=%x a1=0 a2=0 a3=0 items=0 "

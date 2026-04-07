@@ -1599,7 +1599,7 @@ var argInterpI386 = map[string]int{
 	"utimensat":          1,
 }
 
-// Socket address families as ausearch names them, which is the AF_ constant lower-cased with the prefix dropped, and local rather than unix for AF_UNIX.  31 of 32 agreed with the independent source.
+// Socket address families as ausearch names them, which is the AF_ constant lower-cased with the prefix dropped, and local rather than unix for AF_UNIX.  42 of 43 agreed with the independent source.
 var sockFamilyName = map[int]string{
 	1:  "local",
 	2:  "inet",
@@ -1630,9 +1630,20 @@ var sockFamilyName = map[int]string{
 	29: "can",
 	30: "tipc",
 	31: "bluetooth",
+	32: "iucv",
+	33: "rxrpc",
+	34: "isdn",
+	35: "phonet",
+	36: "ieee802154",
+	37: "caif",
 	38: "alg",
+	39: "nfc",
 	40: "vsock",
+	41: "kcm",
 	42: "qipcrtr",
+	43: "smc",
+	44: "xdp",
+	45: "mctp",
 }
 
 // Socket types, SOCK_*.  5 of 7 agreed with the independent source.

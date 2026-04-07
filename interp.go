@@ -196,6 +196,8 @@ func (ip *Interp) FieldFlag(r *Record, f *Field) (string, string) {
 		return flagsText(raw, openFlagName, "O_RDONLY", true), ip.claim("oflag")
 	case f.Name == "flags" && r.Type == "MMAP":
 		return mapFlagsText(raw), ip.claim("mapflags")
+	case f.Name == "saddr" && r.Type == "SOCKADDR":
+		return ip.saddr(f)
 	case renderRefused[f.Name]:
 		return raw, ip.refuse(f.Name)
 	case escapedFields[f.Name]:
