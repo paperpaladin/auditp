@@ -71,7 +71,28 @@ def scan_value(body, i):
         return body[i:j + 1] if j >= 0 else body[i:]
     if body[i] == '"':
         j = body.find('"', i + 1)
-        return body[i:j + 1] if j >= 0 else body[i:]
+        if j < 0:
+            return body[i:]
+        # A TTY record's data= is a comma-separated list of quoted runs
+        # and named keys: "ls -l /srv",<ret>.  Stopping at the closing
+        # quote drops everything after the first comma, and the field
+        # then compares equal to the first run alone, which is a pass
+        # for a renderer that printed only the first run.
+        while j + 1 < len(body) and body[j + 1] == ",":
+            k = j + 2
+            if k < len(body) and body[k] == '"':
+                nxt = body.find('"', k + 1)
+                if nxt < 0:
+                    break
+                j = nxt
+                continue
+            end = k
+            while end < len(body) and body[end] not in ", ":
+                end += 1
+            if end == k:
+                break
+            j = end - 1
+        return body[i:j + 1]
     if body[i] == "'":
         j = body.find("'", i + 1)
         return body[i:j + 1] if j >= 0 else body[i:]
@@ -136,6 +157,14 @@ def rows_for_record(typ, key, body, idx, stamp):
     if prefix:
         yield (key, idx, "@prefix", prefix)
     for name, raw in fields:
+        # TTY data is the one field whose quotes are part of what
+        # ausearch rendered rather than the quoting of a string, so it
+        # is the one field not unquoted.  Same class of special case as
+        # the braces around a decoded sockaddr, and the same reason:
+        # this is ausearch's presentation and not the log's encoding.
+        if typ == "TTY" and name == "data":
+            yield (key, idx, name, raw)
+            continue
         yield (key, idx, name, unquote(raw))
         if raw[:1] == "'":
             _, sub = split_fields(raw[1:-1])

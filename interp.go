@@ -198,6 +198,8 @@ func (ip *Interp) FieldFlag(r *Record, f *Field) (string, string) {
 		return mapFlagsText(raw), ip.claim("mapflags")
 	case f.Name == "saddr" && r.Type == "SOCKADDR":
 		return ip.saddr(f)
+	case f.Name == "data" && r.Type == "TTY":
+		return ttyText(decodeEscaped(f)), ip.claim("tty-data")
 	case renderRefused[f.Name]:
 		return raw, ip.refuse(f.Name)
 	case escapedFields[f.Name]:
@@ -376,12 +378,12 @@ var escapedFields = map[string]bool{
 }
 
 // renderRefused are escaped fields auditp decodes but will not render,
-// because ausearch renders them in a format of its own that auditp does
-// not implement.  TTY data is the only one: ausearch turns the keystrokes
-// into "ls",<ret>,"\000", naming the control characters.  Decoding and
-// rendering are separate questions and this is the field that shows why:
-// the bytes come back correctly and the presentation is refused.
-var renderRefused = map[string]bool{"data": true}
+// because ausearch renders them in a format of its own.  It is empty.
+// TTY data was the only entry and tty.go renders it now; the map stays
+// because the next such field will want it and because the branch it
+// drives is the one that keeps decoding and rendering separate
+// questions.
+var renderRefused = map[string]bool{}
 
 // capFields are the capability BITMASKS.  cap_fe is a one-bit effective
 // flag and cap_fver a version number, both of which share the prefix and

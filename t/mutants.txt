@@ -105,3 +105,17 @@ saddr-v6-no-dotted-tail@@@saddr.go@@@	quad := best == 0 && (bestLen == 6 ||@@@	q
 saddr-v6-shortest-run@@@saddr.go@@@			if curLen > bestLen {@@@			if curLen >= bestLen {
 saddr-v6-single-zero-collapsed@@@saddr.go@@@	if bestLen < 2 {@@@	if bestLen < 1 {
 saddr-unsupported-is-unknown@@@saddr.go@@@	return "{ saddr_fam=" + name + " (unsupported) }", ip.claim("saddr-unsupported")@@@	return fmt.Sprintf("unknown-family(%d)", fam), ip.claim("saddr-unsupported")
+# --- TTY keystrokes ---
+# tty-escape-shortest-match survives and is equivalent, for a reason
+# that is a property of the probed table rather than of the code: no
+# entry in ttyEscapeName is a proper prefix of another, checked over
+# all 143 of them, so the longest match and the first match are always
+# the same sequence.  The loop keeps the longest-match rule because the
+# next ausearch might add an entry that breaks the property, and then
+# this mutant stops being equivalent without anything else changing.
+tty-no-escape-lookup@@@tty.go@@@		if seq, name := ttyEscapeAt(b[i:]); name != "" {@@@		if seq, name := ttyEscapeAt(b[i:]); false {
+tty-escape-shortest-match@@@tty.go@@@		if len(seq) <= len(best) || len(seq) > len(b) {@@@		if len(seq) < len(best) || len(seq) > len(b) {
+tty-octal-two-digits@@@tty.go@@@			fmt.Fprintf(&text, `\%03o`, c)@@@			fmt.Fprintf(&text, `\%02o`, c)
+tty-quote-not-escaped@@@tty.go@@@		case c == '"':\n			text.WriteString(`\"`)@@@		case c == '\x00':\n			text.WriteString(`\"`)
+tty-del-is-text@@@tty.go@@@		if name, ok := ttyControlName[int(c)]; ok {@@@		if name, ok := ttyControlName[int(c)]; ok && c != 0x7f {
+tty-runs-not-separated@@@tty.go@@@	return strings.Join(parts, ",")@@@	return strings.Join(parts, "")

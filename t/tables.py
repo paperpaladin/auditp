@@ -690,6 +690,126 @@ def syscall_args(arch, tab):
     return out, len(pairs)
 
 
+# ------------------------------------------------------- TTY keystrokes
+# A TTY record's data= field is a hex-encoded run of keystrokes and
+# ausearch renders it as a comma-separated mixture of quoted text and
+# named keys: "ls -l /srv",<ret>.  The names are libaudit's own
+# invention.  There is no second source for them: libaudit is not
+# installed here in source form and no header names a key <page-up>.
+# So this is the one table in this file built from a single authority,
+# and it is probed rather than written, which at least means it cannot
+# go stale without the suite seeing it.  The README says so.
+#
+# TTY_SENTINEL is appended to every probe so that the length of the
+# sequence ausearch consumed can be read off the text it left behind.
+# That matters: ESC [ 9 ~ comes back as <delete> followed by the text
+# "~", so libaudit took three bytes and not four, and a table that
+# assumed the whole candidate was consumed would render the leftover
+# twice.
+TTY_SENTINEL = "qQ"
+TTY_DATA = re.compile(r"(?:^| )data=(.*?)\s*$")
+
+
+def tty_probe(blobs):
+    """Render each byte string through ausearch's TTY renderer."""
+    got = probe([("TTY", "data=" + b.hex().upper()) for b in blobs])
+    out = {}
+    for i in range(len(blobs)):
+        if i not in got:
+            continue
+        m = TTY_DATA.search(got[i])
+        if m:
+            out[i] = m.group(1)
+    return out
+
+
+def tty_controls():
+    """Single bytes that ausearch gives a name to, like <ret>.
+
+    Probed ALONE and not with the sentinel the escape probe uses.  With
+    it, ESC + q came back as <F2> and 0x8f + q as <C1>, because both
+    bytes introduce a sequence and the sentinel completed one, so the
+    table said ESC on its own was an F2 key.
+    """
+    blobs = [bytes([b]) for b in range(0, 256)]
+    got = tty_probe(blobs)
+    out = {}
+    named = 0
+    for b in range(0, 256):
+        r = got.get(b)
+        if r is None:
+            problems.append("ONESIDED tty byte 0x%02x got no answer" % b)
+            continue
+        if not r.startswith("<"):
+            continue          # rendered as text, not as a named key
+        name = r.split(",", 1)[0]
+        out[b] = name
+        named += 1
+    return out, named
+
+
+def tty_escapes():
+    """Multi-byte key sequences that ausearch gives a name to.
+
+    Two introducers, not one.  ESC is the obvious one; 0x80 to 0x9f are
+    the 8-bit forms, and libaudit knows thirteen of those.  Probing only
+    ESC left 0x8f q rendering as two octal-escaped bytes here and as a
+    named key in ausearch, and nothing in the suite could see it because
+    no case in the corpus held a byte above 0x7f next to a letter.
+
+    Keyed by the whole consumed sequence, introducer included, so the
+    renderer needs no special case for which byte starts one.
+    """
+    cands = []
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz~"
+    for intro in [0x1B] + list(range(0x80, 0xA0)):
+        p = chr(intro)
+        for c in letters:
+            cands.append(p + c)
+            cands.append(p + "[" + c)
+            cands.append(p + "O" + c)
+        for n in range(0, 64):
+            cands.append(p + "[%d~" % n)
+    blobs = [c.encode("latin-1") + TTY_SENTINEL.encode() for c in cands]
+    got = tty_probe(blobs)
+    out = {}
+    for i, c in enumerate(cands):
+        r = got.get(i)
+        if r is None or not r.startswith("<"):
+            continue
+        name = r.split(",", 1)[0]
+        if name == "<esc>":
+            continue          # no match; the introducer printed alone
+        # What came back after the name is the text libaudit did not
+        # consume, so the prefix it did consume is the candidate minus
+        # that tail.
+        rest = r.split(",", 1)[1] if "," in r else '""'
+        tail = rest[1:-1] if rest.startswith('"') else ""
+        tail = tail.replace('\\"', '"').replace("\\\\", "\\")
+        whole = c + TTY_SENTINEL
+        if not tail or not whole.endswith(tail):
+            problems.append("ONESIDED tty escape %r left %r, which is not "
+                            "a suffix of it" % (c, tail))
+            continue
+        if len(tail) >= len(whole):
+            continue          # consumed nothing
+        consumed = whole[:len(whole) - len(tail)]
+        if consumed in out and out[consumed] != name:
+            problems.append("ONESIDED tty escape %r is both %s and %s"
+                            % (consumed, out[consumed], name))
+            continue
+        out[consumed] = name
+    return out, len(out)
+
+
+def go_map_str_str(name, m, comment):
+    out = ["// %s" % comment, "var %s = map[string]string{" % name]
+    for k in sorted(m):
+        out.append("\t%s: %s," % (goquote(k), goquote(m[k])))
+    out.append("}")
+    return "\n".join(out)
+
+
 def go_map_str_int(name, m, comment):
     out = ["// %s" % comment, "var %s = map[string]int{" % name]
     for k in sorted(m):
@@ -867,6 +987,8 @@ def main():
     flists, agfl = filterlists()
     oflags, agof = openflags()
     mflags, agmf = mapflags()
+    ttycc, agtc = tty_controls()
+    ttyesc, agte = tty_escapes()
     args64, nargs64 = syscall_args(ARCH_X8664, sc64)
     args32, nargs32 = syscall_args(ARCH_I386, sc32)
     small = arg_tables()
@@ -980,6 +1102,19 @@ package main
                                     "independent source."
                                     % (comment, ag, len(tbl))))
     parts.append(go_map_int_str(
+        "ttyControlName", ttycc,
+        "Single bytes a TTY record's data= field renders as a named "
+        "key rather than as text: %d of the 256, probed one at a time.  "
+        "0x1c to 0x1f are NOT in it, which reading a terminal manual "
+        "would not tell you: libaudit prints those as octal inside the "
+        "quoted text." % agtc))
+    parts.append(go_map_str_str(
+        "ttyEscapeName", ttyesc,
+        "Byte sequences following ESC that libaudit names, %d of them, "
+        "keyed by the bytes it CONSUMES rather than by the sequence "
+        "probed: ESC [ 9 ~ comes back as <delete> and then the text ~, "
+        "so it took three bytes of the four." % agte))
+    parts.append(go_map_int_str(
         "signalName", sigs,
         "Signal names as ausearch prints them, probed for 0 through 128 "
         "and cross-checked against asm-generic/signal.h and Python: %d "
@@ -1026,6 +1161,8 @@ package main
     rep.write("open-flag-two-source-agree %d\n" % agof)
     rep.write("map-flag %d\n" % len(mflags))
     rep.write("map-flag-two-source-agree %d\n" % agmf)
+    rep.write("tty-control %d\n" % len(ttycc))
+    rep.write("tty-escape %d\n" % len(ttyesc))
     rep.write("arg-pairs-x86_64 %d\n" % nargs64)
     rep.write("arg-pairs-i386 %d\n" % nargs32)
     for key in ("sockFamily", "sockType", "sockProto", "seekWhence",

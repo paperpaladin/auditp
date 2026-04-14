@@ -190,6 +190,13 @@ if [ "$skip" -eq 0 ]; then
 	floor "errno names agreed by two sources"     125 "$(tnum errno-two-source-agree)"
 	floor "signal names agreed by two sources"     30 "$(tnum signal-two-source-agree)"
 	floor "arch names agreed by two sources"       10 "$(tnum arch-two-source-agree)"
+	# One source, not two: these come from ausearch alone, because
+	# nothing else on this machine names a key <page-up>.  The floor
+	# is still worth having, since a probe that answered nothing
+	# would emit an empty table and every TTY field would agree with
+	# an empty rendering.
+	floor "TTY control bytes named by ausearch"    25 "$(tnum tty-control)"
+	floor "TTY key sequences named by ausearch"   140 "$(tnum tty-escape)"
 fi
 
 # --- 6. the oracle again, interpreted ---------------------------------
@@ -221,18 +228,19 @@ if [ -s "$T/orci.flat" ]; then
 	# A ceiling, so the gap cannot quietly grow, and a floor on the
 	# translations, because 0 wrong is also what a build with every
 	# interpreter deleted would report.
-	if [ "${rf:-99999}" -le 20 ]; then ok "refusals: $rf (ceiling 20)"
-	else no "refusals grew to $rf, ceiling is 20"; fi
+	if [ "${rf:-99999}" -le 12 ]; then ok "refusals: $rf (ceiling 12)"
+	else no "refusals grew to $rf, ceiling is 12"; fi
 	# Each interpreter has to have fired.  An interpreter the corpus
 	# never reaches is untested however many other fields agree.
 	"$AUDITP" -o census -i "$CORPUS" | sed -n 's/^interp //p' > "$T/interp.txt"
 	nint=$(wc -l < "$T/interp.txt")
-	floor "distinct interpreters that fired" 40 "$nint"
+	floor "distinct interpreters that fired" 41 "$nint"
 	for want in arg-dirfd arg-openflags arg-mode4 arg-uid arg-gid \
 	            arg-signal arg-prot arg-prot-mmap arg-mapflags \
 	            arg-sockfamily arg-socktype arg-sockproto arg-access \
 	            arg-whence arg-exitcode arg-plain escaped execve-arg \
 	            saddr-inet saddr-inet6 saddr-local saddr-netlink \
+	            tty-data \
 	            nested proctitle cap seccomp-code family list mode \
 	            oflag mapflags sig res exit arch syscall uid gid ses \
 	            @time @type; do
@@ -413,6 +421,23 @@ floor "sockaddr shapes identical" 80 "$(sa_ same)"
 # ax25, atmpvc and x25 are refused on purpose and nothing else is.
 if [ "$(sa_ refused)" -eq 5 ]; then ok "sockaddr refusals are the 5 recorded ones"
 else no "sockaddr refusals are now $(sa_ refused), not the 5 recorded"; fi
+
+# --- 9c. TTY keystrokes -----------------------------------------------
+# One TTY record in the corpus reaches one of the three rules in the
+# renderer.  t/ttydata.py builds 363: every single byte, the escape
+# sequences on both introducers, the boundaries between a text run and a
+# named key, and the bytes that have to be escaped inside a quoted run.
+python3 t/ttydata.py --auditp "$AUDITP" > "$T/tty.txt" 2>&1
+rc=$?
+ty_() { awk -v k="$1" '$1==k{print $2; exit}' "$T/tty.txt"; }
+if [ $rc -eq 0 ]; then
+	ok "TTY data: $(ty_ same) of $(ty_ cases) identical to ausearch, 0 different"
+else
+	no "TTY data: $(ty_ differ) different, $(ty_ missing) unanswered"
+	sed -n '1,20p' "$T/tty.txt"
+fi
+floor "TTY renderings compared" 350 "$(ty_ cases)"
+floor "TTY renderings identical" 350 "$(ty_ same)"
 
 # --- 10. truncated and corrupted input --------------------------------
 # Byte prefixes, line-aligned prefixes, single-byte overwrites, and a

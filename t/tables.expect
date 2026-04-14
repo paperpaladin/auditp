@@ -23,6 +23,8 @@ open-flag 17
 open-flag-two-source-agree 17
 map-flag 17
 map-flag-two-source-agree 17
+tty-control 28
+tty-escape 143
 arg-pairs-x86_64 97
 arg-pairs-i386 99
 sockFamily 43
