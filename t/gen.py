@@ -260,6 +260,9 @@ ERRNOS = [1, 2, 3, 4, 5, 9, 11, 12, 13, 14, 17, 20, 21, 22, 24, 28, 32,
 # the kernel's does not, so it is the boundary where ausearch starts
 # printing unknown-signal.
 SIGNALS = [1, 2, 3, 4, 6, 8, 9, 11, 13, 15, 17, 19, 29, 30, 31, 32]
+# fcntl commands: the low ones, F_SETOWN (whose argument is a uid), two
+# above F_LINUX_SPECIFIC_BASE, and one nothing names.
+FCNTL_CMDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1024, 1030, 1033, 99]
 FAMILIES = [1, 2, 10, 16, 17]
 
 
@@ -318,6 +321,21 @@ def build(g):
             g.count("mmap-prot")
             syscall_event(g, 9, ARCH64, ["0", "1000", prot, mf],
                           exit_=0, success="yes", comm="tick", exe=EXES[1])
+    # fcntl, whose second argument is a command out of a table and
+    # whose third is a uid only when that command is F_SETOWN.  Both
+    # arches: i386 has fcntl at 55 and fcntl64 at 221, and ausearch
+    # interprets the argument of both.
+    for cmd in FCNTL_CMDS:
+        for arg in ["0", "3e8", "ffffffff"]:
+            g.count("fcntl-cmd")
+            syscall_event(g, 72, ARCH64, ["3", "%x" % cmd, arg, "0"],
+                          exit_=0, success="yes", comm="svc-alpha",
+                          exe=EXES[4])
+    for nr in (55, 221):
+        g.count("fcntl-i386")
+        syscall_event(g, nr, ARCH32, ["3", "8", "c", "0"],
+                      exit_=0, success="yes", comm="tick", exe=EXES[1])
+
     for sig in SIGNALS:
         g.count("kill-signal")
         syscall_event(g, 62, ARCH64, ["3e8", "%x" % sig, "0", "0"],

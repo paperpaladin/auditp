@@ -25,8 +25,8 @@ map-flag 17
 map-flag-two-source-agree 17
 tty-control 28
 tty-escape 143
-arg-pairs-x86_64 97
-arg-pairs-i386 99
+arg-pairs-x86_64 98
+arg-pairs-i386 101
 sockFamily 43
 sockFamily-two-source-agree 42
 sockType 7
@@ -41,6 +41,8 @@ protFlagMmap 4
 protFlagMmap-two-source-agree 4
 accessMode 3
 accessMode-two-source-agree 3
+fcntlCmd 31
+fcntlCmd-two-source-agree 31
 problems 0
 notes 40
   ALIAS arch 40000028: header computes arm, ausearch says armeb

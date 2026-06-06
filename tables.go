@@ -1443,7 +1443,7 @@ var mapFlagName = map[int]string{
 	67108864: "MAP_UNINITIALIZED",
 }
 
-// Which syscall arguments ausearch interprets on x86_64, as a bitmask over a0..a3: 97 pairs.  a0..a3 are the one part of the format with no self-describing structure, and a pair auditp does not implement has to be REFUSED rather than printed as a number, because printing 0x2a where ausearch prints a signal name is a wrong answer and not a gap.
+// Which syscall arguments ausearch interprets on x86_64, as a bitmask over a0..a3: 98 pairs.  a0..a3 are the one part of the format with no self-describing structure, and a pair auditp does not implement has to be REFUSED rather than printed as a number, because printing 0x2a where ausearch prints a signal name is a wrong answer and not a gap.
 var argInterpX8664 = map[string]int{
 	"access":             2,
 	"bpf":                1,
@@ -1460,7 +1460,7 @@ var argInterpX8664 = map[string]int{
 	"fchmod":             2,
 	"fchmodat":           5,
 	"fchownat":           1,
-	"fcntl":              2,
+	"fcntl":              6,
 	"fsconfig":           2,
 	"fsmount":            6,
 	"fsopen":             2,
@@ -1520,7 +1520,7 @@ var argInterpX8664 = map[string]int{
 	"utimensat":          1,
 }
 
-// The same for i386: 99 pairs.
+// The same for i386: 101 pairs.
 var argInterpI386 = map[string]int{
 	"access":             2,
 	"bpf":                1,
@@ -1538,8 +1538,8 @@ var argInterpI386 = map[string]int{
 	"fchmod":             2,
 	"fchmodat":           5,
 	"fchownat":           1,
-	"fcntl":              2,
-	"fcntl64":            2,
+	"fcntl":              6,
+	"fcntl64":            6,
 	"fsconfig":           2,
 	"fsmount":            6,
 	"fsopen":             2,
@@ -1746,6 +1746,41 @@ var accessModeName = map[int]string{
 	1: "X_OK",
 	2: "W_OK",
 	4: "R_OK",
+}
+
+// fcntl commands, F_*, probed over 0..47 and 1024..1049.  31 of 31 agreed with the independent source.
+var fcntlCmdName = map[int]string{
+	0:    "F_DUPFD",
+	1:    "F_GETFD",
+	2:    "F_SETFD",
+	3:    "F_GETFL",
+	4:    "F_SETFL",
+	5:    "F_GETLK",
+	6:    "F_SETLK",
+	7:    "F_SETLKW",
+	8:    "F_SETOWN",
+	9:    "F_GETOWN",
+	10:   "F_SETSIG",
+	11:   "F_GETSIG",
+	12:   "F_GETLK64",
+	13:   "F_SETLK64",
+	14:   "F_SETLKW64",
+	15:   "F_SETOWN_EX",
+	16:   "F_GETOWN_EX",
+	17:   "F_GETOWNER_UIDS",
+	1024: "F_SETLEASE",
+	1025: "F_GETLEASE",
+	1026: "F_NOTIFY",
+	1029: "F_CANCELLK",
+	1030: "F_DUPFD_CLOEXEC",
+	1031: "F_SETPIPE_SZ",
+	1032: "F_GETPIPE_SZ",
+	1033: "F_ADD_SEALS",
+	1034: "F_GET_SEALS",
+	1035: "F_GET_RW_HINT",
+	1036: "F_SET_RW_HINT",
+	1037: "F_GET_FILE_RW_HINT",
+	1038: "F_SET_FILE_RW_HINT",
 }
 
 // Single bytes a TTY record's data= field renders as a named key rather than as text: 28 of the 256, probed one at a time.  0x1c to 0x1f are NOT in it, which reading a terminal manual would not tell you: libaudit prints those as octal inside the quoted text.

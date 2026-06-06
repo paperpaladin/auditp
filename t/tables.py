@@ -36,6 +36,7 @@ import sys
 
 AUSYSCALL = "/usr/bin/ausyscall"
 AUSEARCH = "/usr/sbin/ausearch"
+PROBE_CHUNK = 4000
 UAPI = "/usr/lib/linux/uapi/x86/asm"
 AUDIT_H = "/usr/include/linux/audit.h"
 ERRNO_H = ["/usr/include/asm-generic/errno-base.h",
@@ -96,27 +97,34 @@ def probe(records):
     use is a field auditp will render wrongly, and only asking finds that.
     """
     import tempfile
-    lines = []
-    for i, (t, body) in enumerate(records):
-        lines.append("type=%s msg=audit(1700000000.%03d:%d): %s"
-                     % (t, i % 1000, 9000000 + i, body))
-    fd, path = tempfile.mkstemp(prefix="auditp-probe-")
-    try:
-        os.write(fd, ("\n".join(lines) + "\n").encode())
-        os.close(fd)
-        env = dict(os.environ)
-        env["TZ"] = "UTC"
-        env["LC_ALL"] = "C"
-        p = subprocess.run([AUSEARCH, "-i", "-if", path],
-                           capture_output=True, env=env)
-    finally:
-        os.unlink(path)
     out = {}
     pat = re.compile(r"^type=\S+ msg=audit\([^)]*:(\d+)\) : (.*)")
-    for line in p.stdout.decode("utf-8", "replace").splitlines():
-        m = pat.match(line)
-        if m:
-            out[int(m.group(1)) - 9000000] = m.group(2).rstrip()
+    env = dict(os.environ)
+    env["TZ"] = "UTC"
+    env["LC_ALL"] = "C"
+    # In chunks, because ausearch is quadratic in the number of events
+    # in one file.  Measured: 5,000 records take 0.2s, 10,000 take 0.8,
+    # 20,000 take 3.7 and 40,000 take 20.5.  The argument probe puts
+    # about 50,000 records to it per architecture, so one file cost
+    # forty seconds and 4,000 at a time costs two.
+    for lo in range(0, len(records), PROBE_CHUNK):
+        lines = []
+        for i in range(lo, min(lo + PROBE_CHUNK, len(records))):
+            t, body = records[i]
+            lines.append("type=%s msg=audit(1700000000.%03d:%d): %s"
+                         % (t, i % 1000, 9000000 + i, body))
+        fd, path = tempfile.mkstemp(prefix="auditp-probe-")
+        try:
+            os.write(fd, ("\n".join(lines) + "\n").encode())
+            os.close(fd)
+            p = subprocess.run([AUSEARCH, "-i", "-if", path],
+                               capture_output=True, env=env)
+        finally:
+            os.unlink(path)
+        for line in p.stdout.decode("utf-8", "replace").splitlines():
+            m = pat.match(line)
+            if m:
+                out[int(m.group(1)) - 9000000] = m.group(2).rstrip()
     return out
 
 
@@ -467,6 +475,7 @@ CAPABILITY_H = "/usr/include/linux/capability.h"
 SECCOMP_H = "/usr/include/linux/seccomp.h"
 NETFILTER_H = "/usr/include/linux/netfilter.h"
 FCNTL_H = "/usr/include/asm-generic/fcntl.h"
+FCNTL_LINUX_H = "/usr/include/linux/fcntl.h"
 # The x86 header is in the list because MAP_32BIT is defined only there,
 # and leaving it out cost a wrong rendering of every mmap that used it.
 MMAN_H = ["/usr/include/asm-generic/mman-common.h",
@@ -624,6 +633,7 @@ PROTOCOLS = "/etc/protocols"
 SOCKET_H = "/usr/include/x86_64-linux-gnu/bits/socket.h"
 
 ARG_PROBE_VALUES = ["0", "1", "3", "10", "42", "ff", "ffffff9c"]
+ARG_PROBE_SHORT = ["0", "ffffff9c"]
 ARCH_X8664 = "c000003e"
 ARCH_I386 = "40000003"
 
@@ -646,17 +656,33 @@ def syscall_args(arch, tab):
     """
     recs = []
     index = []
-    # Two passes over the other three arguments: all zero, and all ones.
-    # Some pairs are interpreted conditionally -- x86_64's open shows a
-    # mode in a2 only when a1 carries O_CREAT -- and a probe that leaves
-    # the neighbours at zero reports those as uninterpreted.  Which they
-    # are, on i386, where ausearch never shows open's mode at all: the
-    # table is per machine as well as per syscall, so this cannot be
-    # reasoned out and has to be asked.
+    # Four passes over the other three arguments.  Some pairs are
+    # interpreted conditionally: x86_64's open shows a mode in a2 only
+    # when a1 carries O_CREAT, and fcntl resolves a2 through the
+    # password file only when a1 is F_SETOWN, which is 8.  A probe that
+    # leaves the neighbours at zero reports both as uninterpreted, and
+    # auditp then prints 0x3e8 where ausearch prints a login name.  The
+    # fcntl one was a real wrong answer found that way, five fields of
+    # it.
+    #
+    # Conditional is not the same as unconditional and the difference is
+    # per machine: i386's open takes a mode in a2 exactly as x86_64's
+    # does and ausearch never shows it, so this cannot be reasoned out
+    # and has to be asked of each arch separately.
+    # The two extra passes carry two probe values and not seven.  They
+    # exist to catch a pair that is interpreted only when a NEIGHBOUR
+    # has a particular value, and for those the target's own value
+    # hardly matters: a uid renders as a name at 0 and a dirfd as
+    # AT_FDCWD at ffffff9c, which between them cover every kind here.
+    # Seven values on all four passes found the same 98 and 101 pairs
+    # and took a minute, where this takes fifteen seconds.
     for nr in sorted(tab):
         for a in range(4):
-          for other in ("0", "ffffffff"):
-            for v in ARG_PROBE_VALUES:
+          for other, vals in (("0", ARG_PROBE_VALUES),
+                              ("ffffffff", ARG_PROBE_VALUES),
+                              ("8", ARG_PROBE_SHORT),
+                              ("42", ARG_PROBE_SHORT)):
+            for v in vals:
                 args = [other] * 4
                 args[a] = v
                 index.append((nr, a, v))
@@ -802,6 +828,87 @@ def tty_escapes():
     return out, len(out)
 
 
+# ------------------------------------------- per-syscall argument tables
+# a0 to a3 mean different things per syscall, and for nine syscalls
+# ausearch renders the argument as a name out of a table of its own.
+# Each table below is probed by putting a SYSCALL record to ausearch with
+# that argument set, and cross-checked against the kernel header that
+# defines the same constants.  Probed rather than computed, for the same
+# reason the signal table is: libaudit's table and the kernel's are not
+# the same table, and only asking finds where they part.
+SYSCALL_BODY = ("arch=%s syscall=%d success=yes exit=0 a0=%x a1=%x a2=%x "
+                "a3=%x items=0 ppid=1 pid=2 auid=0 uid=0 gid=0 euid=0 "
+                "suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=1 "
+                'comm="x" exe="/x"')
+
+
+def syscall_body(arch, nr, idx, val):
+    a = [0, 0, 0, 0]
+    a[idx] = val
+    return SYSCALL_BODY % (arch, nr, a[0], a[1], a[2], a[3])
+
+
+def arg_value_table(label, arch, nr, idx, values, hdr, unknown):
+    """Probe one (syscall, argument) pair over a set of values.
+
+    hdr maps value to the name its header gives it, and is the second
+    source: a value both sides name and spell differently is recorded as
+    an alias, and a value ausearch has no name for is left out of the
+    table entirely so that auditp refuses it rather than inventing one.
+    """
+    values = sorted(set(values))
+    got = probe([("SYSCALL", syscall_body(arch, nr, idx, v)) for v in values])
+    out = {}
+    agree = 0
+    for i, v in enumerate(values):
+        r = got.get(i)
+        if r is None:
+            continue
+        name = one_field(r, "a%d" % idx)
+        if name is None or name.startswith((unknown, "0x")):
+            continue
+        out[v] = name
+        if hdr.get(v) == name:
+            agree += 1
+        elif v in hdr:
+            problems.append("ALIAS %s %d: header says %s, ausearch says %s"
+                            % (label, v, hdr[v], name))
+        else:
+            problems.append("ONESIDED %s %d (%s) is named by ausearch and "
+                            "not by the header" % (label, v, name))
+    return out, agree
+
+
+def arg_flag_table(label, arch, nr, idx, hdr, unknown, base=None):
+    """The same, one bit at a time, for an argument that is a flag word."""
+    bits = {}
+    for name, val in sorted(hdr.items(), key=lambda kv: kv[1]):
+        if val == 0 or (val & (val - 1)) != 0:
+            continue
+        bits.setdefault(val, name)
+    keys = sorted(bits)
+    got = probe([("SYSCALL", syscall_body(arch, nr, idx, v)) for v in keys])
+    out = {}
+    agree = 0
+    for i, v in enumerate(keys):
+        r = got.get(i)
+        if r is None:
+            continue
+        name = one_field(r, "a%d" % idx)
+        if name is None or name.startswith((unknown, "0x")):
+            problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
+                            "ausearch" % (label, v, bits[v]))
+            continue
+        name = name.rsplit("|", 1)[-1]
+        out[v] = name
+        if name == bits[v]:
+            agree += 1
+        else:
+            problems.append("ALIAS %s bit 0x%x: header says %s, ausearch "
+                            "says %s" % (label, v, bits[v], name))
+    return out, agree
+
+
 def go_map_str_str(name, m, comment):
     out = ["// %s" % comment, "var %s = map[string]string{" % name]
     for k in sorted(m):
@@ -897,6 +1004,40 @@ def arg_tables():
                                    "ppid=1 pid=2 auid=0 uid=0 gid=0 "
                                    'tty=(none) ses=1 comm="x" exe="/x"',
                                    "a2")
+
+    # fcntl's command argument.  Probed over 0..47 and 1024..1049
+    # rather than built from the header's F_ defines, because those
+    # include the lock types F_RDLCK and F_WRLCK, which are 0 and 1 and
+    # are the values of F_DUPFD and F_GETFD, so a table keyed by value
+    # out of that header is wrong about the two commonest commands.
+    fcmd = {}
+    if need(FCNTL_H):
+        for name, val in defines(FCNTL_H, "F_").items():
+            if name in ("RDLCK", "WRLCK", "UNLCK", "EXLCK", "SHLCK",
+                        "LOCK_SH", "LOCK_EX", "LOCK_NB", "LOCK_UN",
+                        "LOCK_MAND", "LOCK_READ", "LOCK_WRITE", "LOCK_RW",
+                        "LINUX_SPECIFIC_BASE"):
+                continue
+            fcmd.setdefault(val, "F_" + name)
+    # The twelve commands above 1024 are written as
+    # (F_LINUX_SPECIFIC_BASE + n) in linux/fcntl.h, which the plain
+    # define reader cannot evaluate, so without this they all came back
+    # as named by ausearch and not by the header: twelve one-sided
+    # entries that look like a gap in ausearch and are a gap in the
+    # reader.
+    if need(FCNTL_LINUX_H):
+        base = fcmd_base = 1024
+        pat = re.compile(r"^#define\s+(F_[A-Z0-9_]+)\s+"
+                         r"\(F_LINUX_SPECIFIC_BASE \+ (\d+)\)")
+        for line in open(FCNTL_LINUX_H):
+            m = pat.match(line)
+            if m:
+                fcmd.setdefault(base + int(m.group(2)), m.group(1))
+        del fcmd_base
+    res["fcntlCmd"] = arg_value_table("fcntl command", ARCH_X8664, 72, 1,
+                                      list(range(0, 48))
+                                      + list(range(1024, 1050)),
+                                      fcmd, "unknown-fcntl")
 
     whence = {}
     if need(FS_H):
@@ -1095,7 +1236,9 @@ package main
              "mmap protection bits, which include PROT_SEM where "
              "mprotect's do not"),
             ("accessMode", "accessModeName",
-             "access() mode bits, R_OK W_OK X_OK")):
+             "access() mode bits, R_OK W_OK X_OK"),
+            ("fcntlCmd", "fcntlCmdName",
+             "fcntl commands, F_*, probed over 0..47 and 1024..1049")):
         tbl, ag = small[key]
         parts.append(go_map_int_str(label, tbl,
                                     "%s.  %d of %d agreed with the "
@@ -1166,7 +1309,7 @@ package main
     rep.write("arg-pairs-x86_64 %d\n" % nargs64)
     rep.write("arg-pairs-i386 %d\n" % nargs32)
     for key in ("sockFamily", "sockType", "sockProto", "seekWhence",
-                "protFlag", "protFlagMmap", "accessMode"):
+                "protFlag", "protFlagMmap", "accessMode", "fcntlCmd"):
         tbl, ag = small[key]
         rep.write("%s %d\n" % (key, len(tbl)))
         rep.write("%s-two-source-agree %d\n" % (key, ag))

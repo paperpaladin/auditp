@@ -10,9 +10,9 @@ import (
 // structure.  The same four field names carry a directory file
 // descriptor, an open flag word, a file mode, a uid, a signal number or
 // nothing at all, and which one depends entirely on the syscall the
-// record is about.  ausearch has a table of 95 (syscall, argument) pairs
-// it interprets on x86_64 and 97 on i386; auditp implements 14 kinds
-// covering 60 of them and REFUSES the rest.
+// record is about.  ausearch has a table of 97 (syscall, argument) pairs
+// it interprets on x86_64 and 99 on i386; auditp implements them by
+// kind and REFUSES by name the pairs it has no kind for.
 //
 // The refusal matters more than the coverage.  For a pair neither tool
 // interprets, both print 0x2a and auditp claims the field.  For a pair
@@ -45,10 +45,16 @@ const (
 	argWhence
 	argExitCode
 	argOpenMode // a mode, but only when the flags argument has O_CREAT
+	argFcntlCmd
+	argFcntlArg // a uid, but only when the command argument is F_SETOWN
 )
 
 // oCreat is the value of O_CREAT, which is the same on x86_64 and i386.
 const oCreat = 0x40
+
+// fSetOwn is F_SETOWN, the one fcntl command whose argument ausearch
+// resolves through the password file.
+const fSetOwn = 8
 
 // argKinds is the (syscall name, argument index) table.  Only the pairs
 // auditp implements are here; anything else present in argInterpX8664 or
@@ -98,6 +104,8 @@ var argKinds = map[string][4]argKind{
 	"mprotect":          {argPlain, argPlain, argProt, argPlain},
 	"socket":            {argSockFamily, argSockType, argSockProto, argPlain},
 	"lseek":             {argPlain, argPlain, argWhence, argPlain},
+	"fcntl":             {argPlain, argFcntlCmd, argFcntlArg, argPlain},
+	"fcntl64":           {argPlain, argFcntlCmd, argFcntlArg, argPlain},
 	"exit":              {argExitCode, argPlain, argPlain, argPlain},
 	"exit_group":        {argExitCode, argPlain, argPlain, argPlain},
 }
@@ -121,6 +129,19 @@ func (ip *Interp) arg(r *Record, f *Field, idx int, raw string) (string, string)
 		kind = argPlain
 	} else if kind == argPlain {
 		kind = argUnimpl
+	}
+	if kind == argFcntlArg {
+		// fcntl's third argument is a pid or a uid only when the
+		// command says so.  ausearch resolves it through the password
+		// file for F_SETOWN and prints it as a number for every other
+		// command, which is the same shape as open's mode and the
+		// same reason: the register holds whatever the caller put
+		// there.
+		if cmd, ok := ip.argValue(r, 1); ok && cmd == fSetOwn {
+			kind = argUID
+		} else {
+			kind = argPlain
+		}
 	}
 	if kind == argOpenMode {
 		// open's mode argument is only a mode when the flags say a file
@@ -189,6 +210,11 @@ func (ip *Interp) arg(r *Record, f *Field, idx int, raw string) (string, string)
 		return lookup(n, sockProtoName, "unknown-proto(%x)"), ip.claim(what)
 	case argAccess:
 		return bitsOrZero(n, accessModeName, 7, "F_OK"), ip.claim(what)
+	case argFcntlCmd:
+		if name, ok := fcntlCmdName[int(n)]; ok {
+			return name, ip.claim(what)
+		}
+		return fmt.Sprintf("unknown-fcntl-command(%d)", n), ip.claim(what)
 	case argWhence:
 		return lookup(n, seekWhenceName, "unknown-whence(%x)"), ip.claim(what)
 	case argExitCode:
@@ -211,6 +237,7 @@ var argKindName = map[argKind]string{
 	argSockFamily: "sockfamily", argSockType: "socktype",
 	argSockProto: "sockproto", argAccess: "access", argWhence: "whence",
 	argExitCode: "exitcode", argOpenMode: "openmode",
+	argFcntlCmd: "fcntlcmd", argFcntlArg: "fcntlarg",
 }
 
 // openFlagsIndex says which argument of each open-family syscall holds

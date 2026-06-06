@@ -119,3 +119,7 @@ tty-octal-two-digits@@@tty.go@@@			fmt.Fprintf(&text, `\%03o`, c)@@@			fmt.Fprin
 tty-quote-not-escaped@@@tty.go@@@		case c == '"':\n			text.WriteString(`\"`)@@@		case c == '\x00':\n			text.WriteString(`\"`)
 tty-del-is-text@@@tty.go@@@		if name, ok := ttyControlName[int(c)]; ok {@@@		if name, ok := ttyControlName[int(c)]; ok && c != 0x7f {
 tty-runs-not-separated@@@tty.go@@@	return strings.Join(parts, ",")@@@	return strings.Join(parts, "")
+# --- fcntl ---
+fcntl-setown-unconditional@@@args.go@@@		if cmd, ok := ip.argValue(r, 1); ok && cmd == fSetOwn {@@@		if true {
+fcntl-setown-wrong-command@@@args.go@@@const fSetOwn = 8@@@const fSetOwn = 9
+fcntl-unknown-in-hex@@@args.go@@@		return fmt.Sprintf("unknown-fcntl-command(%d)", n), ip.claim(what)@@@		return fmt.Sprintf("unknown-fcntl-command(%x)", n), ip.claim(what)

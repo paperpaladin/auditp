@@ -188,6 +188,7 @@ if [ "$skip" -eq 0 ]; then
 	floor "i386 syscalls agreed by two sources"   448 "$(tnum syscall-i386-two-source-agree)"
 	floor "audit types agreed by two sources"      70 "$(tnum audit-types-two-source-agree)"
 	floor "errno names agreed by two sources"     125 "$(tnum errno-two-source-agree)"
+	floor "fcntl commands agreed by two sources"  30 "$(tnum fcntlCmd-two-source-agree)"
 	floor "signal names agreed by two sources"     30 "$(tnum signal-two-source-agree)"
 	floor "arch names agreed by two sources"       10 "$(tnum arch-two-source-agree)"
 	# One source, not two: these come from ausearch alone, because
@@ -234,13 +235,13 @@ if [ -s "$T/orci.flat" ]; then
 	# never reaches is untested however many other fields agree.
 	"$AUDITP" -o census -i "$CORPUS" | sed -n 's/^interp //p' > "$T/interp.txt"
 	nint=$(wc -l < "$T/interp.txt")
-	floor "distinct interpreters that fired" 41 "$nint"
+	floor "distinct interpreters that fired" 42 "$nint"
 	for want in arg-dirfd arg-openflags arg-mode4 arg-uid arg-gid \
 	            arg-signal arg-prot arg-prot-mmap arg-mapflags \
 	            arg-sockfamily arg-socktype arg-sockproto arg-access \
 	            arg-whence arg-exitcode arg-plain escaped execve-arg \
 	            saddr-inet saddr-inet6 saddr-local saddr-netlink \
-	            tty-data \
+	            tty-data arg-fcntlcmd \
 	            nested proctitle cap seccomp-code family list mode \
 	            oflag mapflags sig res exit arch syscall uid gid ses \
 	            @time @type; do
