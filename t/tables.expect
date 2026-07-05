@@ -43,8 +43,14 @@ accessMode 3
 accessMode-two-source-agree 3
 fcntlCmd 31
 fcntlCmd-two-source-agree 31
+bpfCmd 36
+bpfCmd-two-source-agree 36
+ptraceReq 41
+ptraceReq-two-source-agree 39
+epollOp 3
+epollOp-two-source-agree 3
 problems 0
-notes 40
+notes 42
   ALIAS arch 40000028: header computes arm, ausearch says armeb
   ALIAS audit filter list 6: header says fs, ausearch says filesystem
   ALIAS audit filter list 7: header says uring_exit, ausearch says io_uring
@@ -53,6 +59,8 @@ notes 40
   ALIAS i386 syscall 283: ausyscall says sys_kexec_load, header says kexec_load
   ALIAS i386 syscall 423: ausyscall says sched_rr_get_interval64, header says sched_rr_get_interval_time64
   ALIAS netfilter family 0: header says unspec, ausearch says unspecified
+  ALIAS ptrace request 3: header says PTRACE_PEEKUSR, ausearch says PTRACE_PEEKUSER
+  ALIAS ptrace request 6: header says PTRACE_POKEUSR, ausearch says PTRACE_POKEUSER
   ALIAS seccomp code 0x00000000: header says kill-process, ausearch says kill-thread
   ALIAS seccomp code 0x7fc00000: header says user-notif, ausearch says user-notify
   ALIAS socket family 1: source says unix, ausearch says local

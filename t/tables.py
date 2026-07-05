@@ -56,7 +56,12 @@ def need(path):
 def defines(path, prefix):
     """Read '#define PREFIX_NAME VALUE' from a uapi header."""
     out = {}
-    pat = re.compile(r"^#define\s+%s([A-Za-z0-9_]+)\s+(\S+)" % re.escape(prefix))
+    # "# define" with a space after the hash is the same directive and
+    # x86's ptrace-abi.h writes nine of its requests that way.  An
+    # anchored "^#define" misses all nine and the table then looks like
+    # a gap in the header rather than a gap in this reader.
+    pat = re.compile(r"^#\s*define\s+%s([A-Za-z0-9_]+)\s+(\S+)"
+                     % re.escape(prefix))
     with open(path) as f:
         for line in f:
             m = pat.match(line)
@@ -85,6 +90,33 @@ def enum_values(path, prefix):
     for m in re.finditer(r"\b%s([A-Za-z0-9_]+)\s*=\s*(-?\d+)"
                          % re.escape(prefix), text):
         out[m.group(1)] = int(m.group(2))
+    return out
+
+
+def enum_sequence(path, name, prefix):
+    """Read an enum whose values are implicit: 0, 1, 2 unless written.
+
+    enum_values above only sees NAME = NUMBER, and enum bpf_cmd writes
+    none of its numbers down, so a table built with that reader is
+    empty and the cross-check passes having checked nothing.
+    """
+    text = open(path).read()
+    m = re.search(r"enum\s+%s\s*\{(.*?)\}" % re.escape(name), text, re.S)
+    if not m:
+        return {}
+    out = {}
+    nxt = 0
+    for item in m.group(1).split(","):
+        item = re.sub(r"/\*.*?\*/", " ", item, flags=re.S).strip()
+        if not item:
+            continue
+        mm = re.match(r"^(%s[A-Za-z0-9_]+)\s*(?:=\s*(-?\d+))?$"
+                      % re.escape(prefix), item)
+        if not mm:
+            continue
+        val = int(mm.group(2)) if mm.group(2) is not None else nxt
+        out.setdefault(val, mm.group(1))
+        nxt = val + 1
     return out
 
 
@@ -476,6 +508,10 @@ SECCOMP_H = "/usr/include/linux/seccomp.h"
 NETFILTER_H = "/usr/include/linux/netfilter.h"
 FCNTL_H = "/usr/include/asm-generic/fcntl.h"
 FCNTL_LINUX_H = "/usr/include/linux/fcntl.h"
+BPF_H = "/usr/include/linux/bpf.h"
+PTRACE_H = "/usr/include/linux/ptrace.h"
+PTRACE_ABI_H = "/usr/lib/linux/uapi/x86/asm/ptrace-abi.h"
+EPOLL_H = "/usr/include/linux/eventpoll.h"
 # The x86 header is in the list because MAP_32BIT is defined only there,
 # and leaving it out cost a wrong rendering of every mmap that used it.
 MMAN_H = ["/usr/include/asm-generic/mman-common.h",
@@ -1039,6 +1075,42 @@ def arg_tables():
                                       + list(range(1024, 1050)),
                                       fcmd, "unknown-fcntl")
 
+    # bpf's command.  enum bpf_cmd writes none of its numbers down, so
+    # the reader has to count.  ausearch spells an unknown one
+    # unknown-bpf-cmd(3f), in hex with no 0x in front of it.
+    bpfcmd = {}
+    if need(BPF_H):
+        bpfcmd = enum_sequence(BPF_H, "bpf_cmd", "BPF_")
+    res["bpfCmd"] = arg_value_table("bpf command", ARCH_X8664, 321, 0,
+                                    range(0, 64), bpfcmd, "unknown-bpf")
+
+    # ptrace's request.  PTRACE_PEEKUSR in the header is PTRACE_PEEKUSER
+    # to ausearch, which is the kind of thing only asking finds.  An
+    # unknown one is unknown-ptrace(0x63), in hex WITH the 0x, where
+    # bpf's has none and epoll_ctl's is decimal.  Three tables, three
+    # spellings, none of them guessable.
+    # Two headers: linux/ptrace.h has the architecture-independent
+    # requests and x86's ptrace-abi.h has GETREGS, ARCH_PRCTL and the
+    # rest of the nine that made the header look as though it were
+    # missing a third of the table ausearch knows.
+    ptr = {}
+    for h in (PTRACE_H, PTRACE_ABI_H):
+        if need(h):
+            for name, val in defines(h, "PTRACE_").items():
+                ptr.setdefault(val, "PTRACE_" + name)
+    res["ptraceReq"] = arg_value_table("ptrace request", ARCH_X8664, 101, 0,
+                                       list(range(0, 36))
+                                       + list(range(0x4200, 0x4210)),
+                                       ptr, "unknown-ptrace")
+
+    ep = {}
+    if need(EPOLL_H):
+        for name, val in defines(EPOLL_H, "EPOLL_CTL_").items():
+            ep.setdefault(val, "EPOLL_CTL_" + name)
+    res["epollOp"] = arg_value_table("epoll_ctl operation", ARCH_X8664,
+                                     233, 1, range(0, 8), ep,
+                                     "unknown-epoll_ctl")
+
     whence = {}
     if need(FS_H):
         for name, val in defines(FS_H, "SEEK_").items():
@@ -1238,7 +1310,11 @@ package main
             ("accessMode", "accessModeName",
              "access() mode bits, R_OK W_OK X_OK"),
             ("fcntlCmd", "fcntlCmdName",
-             "fcntl commands, F_*, probed over 0..47 and 1024..1049")):
+             "fcntl commands, F_*, probed over 0..47 and 1024..1049"),
+            ("bpfCmd", "bpfCmdName", "bpf commands, enum bpf_cmd"),
+            ("ptraceReq", "ptraceReqName", "ptrace requests, PTRACE_*"),
+            ("epollOp", "epollOpName",
+             "epoll_ctl operations, EPOLL_CTL_*")):
         tbl, ag = small[key]
         parts.append(go_map_int_str(label, tbl,
                                     "%s.  %d of %d agreed with the "
@@ -1309,7 +1385,8 @@ package main
     rep.write("arg-pairs-x86_64 %d\n" % nargs64)
     rep.write("arg-pairs-i386 %d\n" % nargs32)
     for key in ("sockFamily", "sockType", "sockProto", "seekWhence",
-                "protFlag", "protFlagMmap", "accessMode", "fcntlCmd"):
+                "protFlag", "protFlagMmap", "accessMode", "fcntlCmd",
+                "bpfCmd", "ptraceReq", "epollOp"):
         tbl, ag = small[key]
         rep.write("%s %d\n" % (key, len(tbl)))
         rep.write("%s-two-source-agree %d\n" % (key, ag))

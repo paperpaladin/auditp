@@ -331,6 +331,23 @@ def build(g):
             syscall_event(g, 72, ARCH64, ["3", "%x" % cmd, arg, "0"],
                           exit_=0, success="yes", comm="svc-alpha",
                           exe=EXES[4])
+    # bpf, ptrace and epoll_ctl, each of whose first interesting
+    # argument is a name out of a table, including one value past the
+    # end of each table so that the unknown spelling is exercised.
+    for cmd in [0, 1, 2, 5, 10, 31, 0x3f]:
+        g.count("bpf-cmd")
+        syscall_event(g, 321, ARCH64, ["%x" % cmd, "7ffd1000", "70", "0"],
+                      exit_=4, success="yes", comm="widgetd", exe=EXES[0])
+    for req in [0, 1, 3, 4, 8, 12, 16, 0x4206, 0x63]:
+        g.count("ptrace-req")
+        syscall_event(g, 101, ARCH64, ["%x" % req, "3e8", "0", "0"],
+                      exit_=0, success="yes", comm="frobnicator",
+                      exe=EXES[1])
+    for op in [1, 2, 3, 0, 9]:
+        g.count("epoll-op")
+        syscall_event(g, 233, ARCH64, ["4", "%x" % op, "5", "7ffd2000"],
+                      exit_=0, success="yes", comm="collator", exe=EXES[2])
+
     for nr in (55, 221):
         g.count("fcntl-i386")
         syscall_event(g, nr, ARCH32, ["3", "8", "c", "0"],

@@ -123,3 +123,9 @@ tty-runs-not-separated@@@tty.go@@@	return strings.Join(parts, ",")@@@	return str
 fcntl-setown-unconditional@@@args.go@@@		if cmd, ok := ip.argValue(r, 1); ok && cmd == fSetOwn {@@@		if true {
 fcntl-setown-wrong-command@@@args.go@@@const fSetOwn = 8@@@const fSetOwn = 9
 fcntl-unknown-in-hex@@@args.go@@@		return fmt.Sprintf("unknown-fcntl-command(%d)", n), ip.claim(what)@@@		return fmt.Sprintf("unknown-fcntl-command(%x)", n), ip.claim(what)
+# --- bpf, ptrace, epoll_ctl ---
+bpf-unknown-decimal@@@args.go@@@		return fmt.Sprintf("unknown-bpf-cmd(%x)", n), ip.claim(what)@@@		return fmt.Sprintf("unknown-bpf-cmd(%d)", n), ip.claim(what)
+ptrace-unknown-no-0x@@@args.go@@@		return fmt.Sprintf("unknown-ptrace(0x%x)", n), ip.claim(what)@@@		return fmt.Sprintf("unknown-ptrace(%x)", n), ip.claim(what)
+epoll-unknown-unsigned@@@args.go@@@		return fmt.Sprintf("unknown-epoll_ctl-operation(%d)",\n			int32(uint32(n))), ip.claim(what)@@@		return fmt.Sprintf("unknown-epoll_ctl-operation(%d)",\n			n), ip.claim(what)
+bpf-table-off-by-one@@@args.go@@@		if name, ok := bpfCmdName[int(n)]; ok {@@@		if name, ok := bpfCmdName[int(n)+1]; ok {
+ptrace-peekuser-spelling@@@args.go@@@		if name, ok := ptraceReqName[int(n)]; ok {@@@		if name, ok := ptraceReqName[int(n)]; ok && n != 3 {

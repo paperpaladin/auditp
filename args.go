@@ -47,6 +47,9 @@ const (
 	argOpenMode // a mode, but only when the flags argument has O_CREAT
 	argFcntlCmd
 	argFcntlArg // a uid, but only when the command argument is F_SETOWN
+	argBpfCmd
+	argPtraceReq
+	argEpollOp
 )
 
 // oCreat is the value of O_CREAT, which is the same on x86_64 and i386.
@@ -105,6 +108,9 @@ var argKinds = map[string][4]argKind{
 	"socket":            {argSockFamily, argSockType, argSockProto, argPlain},
 	"lseek":             {argPlain, argPlain, argWhence, argPlain},
 	"fcntl":             {argPlain, argFcntlCmd, argFcntlArg, argPlain},
+	"bpf":               {argBpfCmd, argPlain, argPlain, argPlain},
+	"ptrace":            {argPtraceReq, argPlain, argPlain, argPlain},
+	"epoll_ctl":         {argPlain, argEpollOp, argPlain, argPlain},
 	"fcntl64":           {argPlain, argFcntlCmd, argFcntlArg, argPlain},
 	"exit":              {argExitCode, argPlain, argPlain, argPlain},
 	"exit_group":        {argExitCode, argPlain, argPlain, argPlain},
@@ -215,6 +221,29 @@ func (ip *Interp) arg(r *Record, f *Field, idx int, raw string) (string, string)
 			return name, ip.claim(what)
 		}
 		return fmt.Sprintf("unknown-fcntl-command(%d)", n), ip.claim(what)
+	case argBpfCmd:
+		// Three tables, three spellings of "I have no name for this",
+		// none of them guessable: bpf's is hex with no 0x, ptrace's is
+		// hex with one, and epoll_ctl's is decimal.
+		if name, ok := bpfCmdName[int(n)]; ok {
+			return name, ip.claim(what)
+		}
+		return fmt.Sprintf("unknown-bpf-cmd(%x)", n), ip.claim(what)
+	case argPtraceReq:
+		if name, ok := ptraceReqName[int(n)]; ok {
+			return name, ip.claim(what)
+		}
+		return fmt.Sprintf("unknown-ptrace(0x%x)", n), ip.claim(what)
+	case argEpollOp:
+		if name, ok := epollOpName[int(n)]; ok {
+			return name, ip.claim(what)
+		}
+		// Signed, and 32-bit: ausearch prints operation 0xfd5a7b6c as
+		// -44451156.  The random-argument records in the corpus found
+		// that; the three real operations are 1, 2 and 3 and no
+		// hand-written case would have.
+		return fmt.Sprintf("unknown-epoll_ctl-operation(%d)",
+			int32(uint32(n))), ip.claim(what)
 	case argWhence:
 		return lookup(n, seekWhenceName, "unknown-whence(%x)"), ip.claim(what)
 	case argExitCode:
@@ -238,6 +267,7 @@ var argKindName = map[argKind]string{
 	argSockProto: "sockproto", argAccess: "access", argWhence: "whence",
 	argExitCode: "exitcode", argOpenMode: "openmode",
 	argFcntlCmd: "fcntlcmd", argFcntlArg: "fcntlarg",
+	argBpfCmd: "bpfcmd", argPtraceReq: "ptracereq", argEpollOp: "epollop",
 }
 
 // openFlagsIndex says which argument of each open-family syscall holds
