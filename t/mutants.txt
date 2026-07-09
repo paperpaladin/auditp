@@ -129,3 +129,8 @@ ptrace-unknown-no-0x@@@args.go@@@		return fmt.Sprintf("unknown-ptrace(0x%x)", n)
 epoll-unknown-unsigned@@@args.go@@@		return fmt.Sprintf("unknown-epoll_ctl-operation(%d)",\n			int32(uint32(n))), ip.claim(what)@@@		return fmt.Sprintf("unknown-epoll_ctl-operation(%d)",\n			n), ip.claim(what)
 bpf-table-off-by-one@@@args.go@@@		if name, ok := bpfCmdName[int(n)]; ok {@@@		if name, ok := bpfCmdName[int(n)+1]; ok {
 ptrace-peekuser-spelling@@@args.go@@@		if name, ok := ptraceReqName[int(n)]; ok {@@@		if name, ok := ptraceReqName[int(n)]; ok && n != 3 {
+# --- mount and umount2 flags ---
+flags-unknown-bit-printed@@@args.go@@@	if len(parts) == 0 {\n		return "0x" + raw\n	}\n	return strings.Join(parts, "|")\n}\n\nfunc protText@@@	if len(parts) == 0 {\n		return "0x" + raw\n	}\n	for b := 0; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit != 0 {\n			if _, ok := tab[int(bit)]; !ok {\n				parts = append(parts, fmt.Sprintf("0x%x", bit))\n			}\n		}\n	}\n	return strings.Join(parts, "|")\n}\n\nfunc protText
+flags-empty-is-zero@@@args.go@@@	if len(parts) == 0 {\n		return "0x" + raw\n	}@@@	if len(parts) == 0 {\n		return "0x0"\n	}
+flags-32-bits-only@@@args.go@@@	for b := 0; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := tab[int(bit)]; ok {\n			parts = append(parts, name)\n		}\n	}\n	if len(parts) == 0 {@@@	for b := 0; b < 31; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := tab[int(bit)]; ok {\n			parts = append(parts, name)\n		}\n	}\n	if len(parts) == 0 {
+mount-and-umount-share-a-table@@@args.go@@@	case argUmountFlags:\n		return flagsOrRaw(n, raw, umountFlagName), ip.claim(what)@@@	case argUmountFlags:\n		return flagsOrRaw(n, raw, mountFlagName), ip.claim(what)

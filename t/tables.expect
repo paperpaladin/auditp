@@ -49,8 +49,12 @@ ptraceReq 41
 ptraceReq-two-source-agree 39
 epollOp 3
 epollOp-two-source-agree 3
+mountFlag 30
+mountFlag-two-source-agree 28
+umountFlag 5
+umountFlag-two-source-agree 4
 problems 0
-notes 42
+notes 46
   ALIAS arch 40000028: header computes arm, ausearch says armeb
   ALIAS audit filter list 6: header says fs, ausearch says filesystem
   ALIAS audit filter list 7: header says uring_exit, ausearch says io_uring
@@ -58,6 +62,8 @@ notes 42
   ALIAS errno 95: header says EOPNOTSUPP, python says ENOTSUP
   ALIAS i386 syscall 283: ausyscall says sys_kexec_load, header says kexec_load
   ALIAS i386 syscall 423: ausyscall says sched_rr_get_interval64, header says sched_rr_get_interval_time64
+  ALIAS mount flag bit 0x8000000: header says MS_NOREMOTELOCK, ausearch says MS_SNAP_STABLE
+  ALIAS mount flag bit 0x8000: header says MS_VERBOSE, ausearch says MS_SILENT
   ALIAS netfilter family 0: header says unspec, ausearch says unspecified
   ALIAS ptrace request 3: header says PTRACE_PEEKUSR, ausearch says PTRACE_PEEKUSER
   ALIAS ptrace request 6: header says PTRACE_POKEUSR, ausearch says PTRACE_POKEUSER
@@ -74,6 +80,7 @@ notes 42
   ONESIDED mmap flag bit 0x80 (MAP_ABOVE4G) has no name in ausearch
   ONESIDED mmap protection bit 0x1000000 (PROT_GROWSDOWN) has no name in ausearch
   ONESIDED mmap protection bit 0x2000000 (PROT_GROWSUP) has no name in ausearch
+  ONESIDED mount flag bit 0x100 (MS_NOSYMFOLLOW) has no name in ausearch
   ONESIDED mprotect protection bit 0x1000000 (PROT_GROWSDOWN) has no name in ausearch
   ONESIDED mprotect protection bit 0x2000000 (PROT_GROWSUP) has no name in ausearch
   ONESIDED mprotect protection bit 0x8 (PROT_SEM) has no name in ausearch
@@ -92,4 +99,5 @@ notes 42
   ONESIDED socket type 7 (SOCK_7) is not named by ausearch
   ONESIDED socket type 8 (SOCK_8) is not named by ausearch
   ONESIDED socket type 9 (SOCK_9) is not named by ausearch
+  ONESIDED umount2 flag bit 0x80000000 is UMOUNT_UNUSED to ausearch and has no name in the header
   ONESIDED x86_64 syscall 335 (uretprobe) is in the header and not ausyscall

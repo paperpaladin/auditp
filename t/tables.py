@@ -68,6 +68,14 @@ def defines(path, prefix):
             if not m:
                 continue
             v = m.group(2).rstrip().rstrip("Uu")
+            # (1<<N) is how half of linux/mount.h writes its flags, and
+            # a reader that only takes a bare literal sees 14 of the 30
+            # bits ausearch names.  Nothing else is evaluated: this is
+            # one shape, not an expression parser.
+            ms = re.match(r"^\(1<<(\d+)\)$", v)
+            if ms:
+                out[m.group(1)] = 1 << int(ms.group(1))
+                continue
             if v.startswith(("0x", "0X")):
                 try:
                     out[m.group(1)] = int(v, 16)
@@ -87,9 +95,10 @@ def enum_values(path, prefix):
     """Read NAME = NUMBER out of a C enum body.  NFPROTO_* is an enum."""
     out = {}
     text = open(path).read()
-    for m in re.finditer(r"\b%s([A-Za-z0-9_]+)\s*=\s*(-?\d+)"
+    for m in re.finditer(r"\b%s([A-Za-z0-9_]+)\s*=\s*(0[xX][0-9a-fA-F]+|-?\d+)"
                          % re.escape(prefix), text):
-        out[m.group(1)] = int(m.group(2))
+        v = m.group(2)
+        out[m.group(1)] = int(v, 16) if v[:2] in ("0x", "0X") else int(v)
     return out
 
 
@@ -512,6 +521,8 @@ BPF_H = "/usr/include/linux/bpf.h"
 PTRACE_H = "/usr/include/linux/ptrace.h"
 PTRACE_ABI_H = "/usr/lib/linux/uapi/x86/asm/ptrace-abi.h"
 EPOLL_H = "/usr/include/linux/eventpoll.h"
+MOUNT_H = "/usr/include/linux/mount.h"
+SYS_MOUNT_H = "/usr/include/x86_64-linux-gnu/sys/mount.h"
 # The x86 header is in the list because MAP_32BIT is defined only there,
 # and leaving it out cost a wrong rendering of every mmap that used it.
 MMAN_H = ["/usr/include/asm-generic/mman-common.h",
@@ -916,13 +927,21 @@ def arg_value_table(label, arch, nr, idx, values, hdr, unknown):
 
 
 def arg_flag_table(label, arch, nr, idx, hdr, unknown, base=None):
-    """The same, one bit at a time, for an argument that is a flag word."""
+    """The same, one bit at a time, for an argument that is a flag word.
+
+    Every bit from 0 to 31 is probed and not only the bits the header
+    names.  Iterating the header alone can only find bits BOTH know
+    about, so a bit ausearch names and the header does not is silently
+    missing from the table, and auditp then prints a shorter list than
+    ausearch for any value containing it, with nothing to say why.
+    UMOUNT_UNUSED is such a bit.
+    """
     bits = {}
     for name, val in sorted(hdr.items(), key=lambda kv: kv[1]):
         if val == 0 or (val & (val - 1)) != 0:
             continue
         bits.setdefault(val, name)
-    keys = sorted(bits)
+    keys = sorted(set(bits) | {1 << b for b in range(32)})
     got = probe([("SYSCALL", syscall_body(arch, nr, idx, v)) for v in keys])
     out = {}
     agree = 0
@@ -932,12 +951,16 @@ def arg_flag_table(label, arch, nr, idx, hdr, unknown, base=None):
             continue
         name = one_field(r, "a%d" % idx)
         if name is None or name.startswith((unknown, "0x")):
-            problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
-                            "ausearch" % (label, v, bits[v]))
+            if v in bits:
+                problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
+                                "ausearch" % (label, v, bits[v]))
             continue
         name = name.rsplit("|", 1)[-1]
         out[v] = name
-        if name == bits[v]:
+        if v not in bits:
+            problems.append("ONESIDED %s bit 0x%x is %s to ausearch and "
+                            "has no name in the header" % (label, v, name))
+        elif name == bits[v]:
             agree += 1
         else:
             problems.append("ALIAS %s bit 0x%x: header says %s, ausearch "
@@ -1110,6 +1133,27 @@ def arg_tables():
     res["epollOp"] = arg_value_table("epoll_ctl operation", ARCH_X8664,
                                      233, 1, range(0, 8), ep,
                                      "unknown-epoll_ctl")
+
+    # mount's and umount2's flag words.  Both render an unknown bit by
+    # dropping it, and a value with no known bit at all as the plain
+    # hex it was written with, which is the same thing auditp prints
+    # for an argument nobody interprets.
+    ms = {}
+    if need(MOUNT_H):
+        for name, val in defines(MOUNT_H, "MS_").items():
+            ms.setdefault("MS_" + name, val)
+    res["mountFlag"] = arg_flag_table("mount flag", ARCH_X8664, 165, 3,
+                                      ms, "unknown-mount")
+
+    # MNT_FORCE and friends are an anonymous enum in glibc's sys/mount.h
+    # and are not in the uapi header at all.
+    mnt = {}
+    if need(SYS_MOUNT_H):
+        for pre in ("MNT_", "UMOUNT_"):
+            for name, val in enum_values(SYS_MOUNT_H, pre).items():
+                mnt.setdefault(pre + name, val)
+    res["umountFlag"] = arg_flag_table("umount2 flag", ARCH_X8664, 166, 1,
+                                       mnt, "unknown-umount")
 
     whence = {}
     if need(FS_H):
@@ -1314,7 +1358,10 @@ package main
             ("bpfCmd", "bpfCmdName", "bpf commands, enum bpf_cmd"),
             ("ptraceReq", "ptraceReqName", "ptrace requests, PTRACE_*"),
             ("epollOp", "epollOpName",
-             "epoll_ctl operations, EPOLL_CTL_*")):
+             "epoll_ctl operations, EPOLL_CTL_*"),
+            ("mountFlag", "mountFlagName", "mount flags, MS_*"),
+            ("umountFlag", "umountFlagName",
+             "umount2 flags, MNT_* and UMOUNT_*")):
         tbl, ag = small[key]
         parts.append(go_map_int_str(label, tbl,
                                     "%s.  %d of %d agreed with the "
@@ -1386,7 +1433,8 @@ package main
     rep.write("arg-pairs-i386 %d\n" % nargs32)
     for key in ("sockFamily", "sockType", "sockProto", "seekWhence",
                 "protFlag", "protFlagMmap", "accessMode", "fcntlCmd",
-                "bpfCmd", "ptraceReq", "epollOp"):
+                "bpfCmd", "ptraceReq", "epollOp", "mountFlag",
+                "umountFlag"):
         tbl, ag = small[key]
         rep.write("%s %d\n" % (key, len(tbl)))
         rep.write("%s-two-source-agree %d\n" % (key, ag))

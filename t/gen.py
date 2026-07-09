@@ -348,6 +348,18 @@ def build(g):
         syscall_event(g, 233, ARCH64, ["4", "%x" % op, "5", "7ffd2000"],
                       exit_=0, success="yes", comm="collator", exe=EXES[2])
 
+    # mount and umount2, whose flag words drop an unknown bit and print
+    # the whole value in hex when no bit has a name.
+    for fl in ["0", "1", "20", "1000", "200000", "8000", "c0ed0000",
+               "40000000", "80000000", "100"]:
+        g.count("mount-flag")
+        syscall_event(g, 165, ARCH64, ["7ffd1000", "7ffd2000", "7ffd3000", fl],
+                      exit_=0, success="yes", comm="svc-alpha", exe=EXES[4])
+    for fl in ["0", "1", "2", "4", "8", "a", "10", "80000000"]:
+        g.count("umount-flag")
+        syscall_event(g, 166, ARCH64, ["7ffd1000", fl, "0", "0"],
+                      exit_=0, success="yes", comm="mesh-agent", exe=EXES[5])
+
     for nr in (55, 221):
         g.count("fcntl-i386")
         syscall_event(g, nr, ARCH32, ["3", "8", "c", "0"],

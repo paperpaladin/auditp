@@ -50,6 +50,8 @@ const (
 	argBpfCmd
 	argPtraceReq
 	argEpollOp
+	argMountFlags
+	argUmountFlags
 )
 
 // oCreat is the value of O_CREAT, which is the same on x86_64 and i386.
@@ -111,6 +113,8 @@ var argKinds = map[string][4]argKind{
 	"bpf":               {argBpfCmd, argPlain, argPlain, argPlain},
 	"ptrace":            {argPtraceReq, argPlain, argPlain, argPlain},
 	"epoll_ctl":         {argPlain, argEpollOp, argPlain, argPlain},
+	"mount":             {argPlain, argPlain, argPlain, argMountFlags},
+	"umount2":           {argPlain, argUmountFlags, argPlain, argPlain},
 	"fcntl64":           {argPlain, argFcntlCmd, argFcntlArg, argPlain},
 	"exit":              {argExitCode, argPlain, argPlain, argPlain},
 	"exit_group":        {argExitCode, argPlain, argPlain, argPlain},
@@ -244,6 +248,10 @@ func (ip *Interp) arg(r *Record, f *Field, idx int, raw string) (string, string)
 		// hand-written case would have.
 		return fmt.Sprintf("unknown-epoll_ctl-operation(%d)",
 			int32(uint32(n))), ip.claim(what)
+	case argMountFlags:
+		return flagsOrRaw(n, raw, mountFlagName), ip.claim(what)
+	case argUmountFlags:
+		return flagsOrRaw(n, raw, umountFlagName), ip.claim(what)
 	case argWhence:
 		return lookup(n, seekWhenceName, "unknown-whence(%x)"), ip.claim(what)
 	case argExitCode:
@@ -268,6 +276,7 @@ var argKindName = map[argKind]string{
 	argExitCode: "exitcode", argOpenMode: "openmode",
 	argFcntlCmd: "fcntlcmd", argFcntlArg: "fcntlarg",
 	argBpfCmd: "bpfcmd", argPtraceReq: "ptracereq", argEpollOp: "epollop",
+	argMountFlags: "mountflags", argUmountFlags: "umountflags",
 }
 
 // openFlagsIndex says which argument of each open-family syscall holds
@@ -313,6 +322,29 @@ func bitsOrZero(n uint64, tab map[int]string, mask uint64, zero string) string {
 	}
 	if len(parts) == 0 {
 		return zero
+	}
+	return strings.Join(parts, "|")
+}
+
+// flagsOrRaw renders a flag word as the names of the bits in it, or as
+// the hex it was written with when none of them has a name.  Three
+// details, all measured: an unknown bit is dropped rather than printed
+// as a number, a value with no known bit at all comes back as the whole
+// value in hex, and the hex is the bytes the log held rather than a
+// reformatting of them, which is the same rule argPlain follows.
+func flagsOrRaw(n uint64, raw string, tab map[int]string) string {
+	var parts []string
+	for b := 0; b < 64; b++ {
+		bit := uint64(1) << uint(b)
+		if n&bit == 0 {
+			continue
+		}
+		if name, ok := tab[int(bit)]; ok {
+			parts = append(parts, name)
+		}
+	}
+	if len(parts) == 0 {
+		return "0x" + raw
 	}
 	return strings.Join(parts, "|")
 }

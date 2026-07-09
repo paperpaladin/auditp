@@ -1875,6 +1875,49 @@ var epollOpName = map[int]string{
 	3: "EPOLL_CTL_MOD",
 }
 
+// mount flags, MS_*.  28 of 30 agreed with the independent source.
+var mountFlagName = map[int]string{
+	1:          "MS_RDONLY",
+	2:          "MS_NOSUID",
+	4:          "MS_NODEV",
+	8:          "MS_NOEXEC",
+	16:         "MS_SYNCHRONOUS",
+	32:         "MS_REMOUNT",
+	64:         "MS_MANDLOCK",
+	128:        "MS_DIRSYNC",
+	1024:       "MS_NOATIME",
+	2048:       "MS_NODIRATIME",
+	4096:       "MS_BIND",
+	8192:       "MS_MOVE",
+	16384:      "MS_REC",
+	32768:      "MS_SILENT",
+	65536:      "MS_POSIXACL",
+	131072:     "MS_UNBINDABLE",
+	262144:     "MS_PRIVATE",
+	524288:     "MS_SLAVE",
+	1048576:    "MS_SHARED",
+	2097152:    "MS_RELATIME",
+	4194304:    "MS_KERNMOUNT",
+	8388608:    "MS_I_VERSION",
+	16777216:   "MS_STRICTATIME",
+	33554432:   "MS_LAZYTIME",
+	67108864:   "MS_SUBMOUNT",
+	134217728:  "MS_SNAP_STABLE",
+	268435456:  "MS_NOSEC",
+	536870912:  "MS_BORN",
+	1073741824: "MS_ACTIVE",
+	2147483648: "MS_NOUSER",
+}
+
+// umount2 flags, MNT_* and UMOUNT_*.  4 of 5 agreed with the independent source.
+var umountFlagName = map[int]string{
+	1:          "MNT_FORCE",
+	2:          "MNT_DETACH",
+	4:          "MNT_EXPIRE",
+	8:          "UMOUNT_NOFOLLOW",
+	2147483648: "UMOUNT_UNUSED",
+}
+
 // Single bytes a TTY record's data= field renders as a named key rather than as text: 28 of the 256, probed one at a time.  0x1c to 0x1f are NOT in it, which reading a terminal manual would not tell you: libaudit prints those as octal inside the quoted text.
 var ttyControlName = map[int]string{
 	1:   "<^A>",
