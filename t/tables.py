@@ -926,7 +926,7 @@ def arg_value_table(label, arch, nr, idx, values, hdr, unknown):
     return out, agree
 
 
-def arg_flag_table(label, arch, nr, idx, hdr, unknown, base=None):
+def arg_flag_table(label, arch, nr, idx, hdr, unknown, minbit=1):
     """The same, one bit at a time, for an argument that is a flag word.
 
     Every bit from 0 to 31 is probed and not only the bits the header
@@ -938,10 +938,10 @@ def arg_flag_table(label, arch, nr, idx, hdr, unknown, base=None):
     """
     bits = {}
     for name, val in sorted(hdr.items(), key=lambda kv: kv[1]):
-        if val == 0 or (val & (val - 1)) != 0:
+        if val == 0 or (val & (val - 1)) != 0 or val < minbit:
             continue
         bits.setdefault(val, name)
-    keys = sorted(set(bits) | {1 << b for b in range(32)})
+    keys = sorted(set(bits) | {1 << b for b in range(32) if 1 << b >= minbit})
     got = probe([("SYSCALL", syscall_body(arch, nr, idx, v)) for v in keys])
     out = {}
     agree = 0
@@ -1155,6 +1155,17 @@ def arg_tables():
     res["umountFlag"] = arg_flag_table("umount2 flag", ARCH_X8664, 166, 1,
                                        mnt, "unknown-umount")
 
+    # clone's flag word, from bit 8 up.  Below that is CSIGNAL, the
+    # signal the child sends its parent when it dies, and probing those
+    # bits as flags records bit 0 as SIGHUP and bit 1 as SIGINT, which
+    # would then be rendered as flag names on every clone.
+    cl = {}
+    if need(SCHED_H):
+        for name, val in defines(SCHED_H, "CLONE_").items():
+            cl.setdefault("CLONE_" + name, val)
+    res["cloneFlag"] = arg_flag_table("clone flag", ARCH_X8664, 56, 2,
+                                      cl, "unknown-clone", minbit=0x100)
+
     whence = {}
     if need(FS_H):
         for name, val in defines(FS_H, "SEEK_").items():
@@ -1361,7 +1372,10 @@ package main
              "epoll_ctl operations, EPOLL_CTL_*"),
             ("mountFlag", "mountFlagName", "mount flags, MS_*"),
             ("umountFlag", "umountFlagName",
-             "umount2 flags, MNT_* and UMOUNT_*")):
+             "umount2 flags, MNT_* and UMOUNT_*"),
+            ("cloneFlag", "cloneFlagName",
+             "clone flags from bit 8 up, CLONE_*.  Below bit 8 is "
+             "CSIGNAL, the exit signal, which is not a flag field")):
         tbl, ag = small[key]
         parts.append(go_map_int_str(label, tbl,
                                     "%s.  %d of %d agreed with the "
@@ -1434,7 +1448,7 @@ package main
     for key in ("sockFamily", "sockType", "sockProto", "seekWhence",
                 "protFlag", "protFlagMmap", "accessMode", "fcntlCmd",
                 "bpfCmd", "ptraceReq", "epollOp", "mountFlag",
-                "umountFlag"):
+                "umountFlag", "cloneFlag"):
         tbl, ag = small[key]
         rep.write("%s %d\n" % (key, len(tbl)))
         rep.write("%s-two-source-agree %d\n" % (key, ag))

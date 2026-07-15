@@ -53,11 +53,14 @@ mountFlag 30
 mountFlag-two-source-agree 28
 umountFlag 5
 umountFlag-two-source-agree 4
+cloneFlag 23
+cloneFlag-two-source-agree 22
 problems 0
-notes 46
+notes 48
   ALIAS arch 40000028: header computes arm, ausearch says armeb
   ALIAS audit filter list 6: header says fs, ausearch says filesystem
   ALIAS audit filter list 7: header says uring_exit, ausearch says io_uring
+  ALIAS clone flag bit 0x2000000: header says CLONE_NEWCGROUP, ausearch says CLONE_STOPPED
   ALIAS errno 35: header says EDEADLK, python says EDEADLOCK
   ALIAS errno 95: header says EOPNOTSUPP, python says ENOTSUP
   ALIAS i386 syscall 283: ausyscall says sys_kexec_load, header says kexec_load
@@ -76,6 +79,7 @@ notes 46
   ALIAS x86_64 syscall 18: ausyscall says pwrite, header says pwrite64
   COUNT 42 of 53 AUDIT_ARCH_* values are unknown to ausearch and render as unknown-elf-type(hex)
   DIVERGE signal 30: ausearch says IGPWR, both sources say SIGPWR, auditp follows the sources
+  ONESIDED clone flag bit 0x1000 (CLONE_PIDFD) has no name in ausearch
   ONESIDED mmap flag bit 0x8 (MAP_DROPPABLE) has no name in ausearch
   ONESIDED mmap flag bit 0x80 (MAP_ABOVE4G) has no name in ausearch
   ONESIDED mmap protection bit 0x1000000 (PROT_GROWSDOWN) has no name in ausearch

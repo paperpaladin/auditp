@@ -52,6 +52,7 @@ const (
 	argEpollOp
 	argMountFlags
 	argUmountFlags
+	argCloneFlags
 )
 
 // oCreat is the value of O_CREAT, which is the same on x86_64 and i386.
@@ -114,6 +115,7 @@ var argKinds = map[string][4]argKind{
 	"ptrace":            {argPtraceReq, argPlain, argPlain, argPlain},
 	"epoll_ctl":         {argPlain, argEpollOp, argPlain, argPlain},
 	"mount":             {argPlain, argPlain, argPlain, argMountFlags},
+	"clone":             {argPlain, argPlain, argCloneFlags, argPlain},
 	"umount2":           {argPlain, argUmountFlags, argPlain, argPlain},
 	"fcntl64":           {argPlain, argFcntlCmd, argFcntlArg, argPlain},
 	"exit":              {argExitCode, argPlain, argPlain, argPlain},
@@ -248,6 +250,8 @@ func (ip *Interp) arg(r *Record, f *Field, idx int, raw string) (string, string)
 		// hand-written case would have.
 		return fmt.Sprintf("unknown-epoll_ctl-operation(%d)",
 			int32(uint32(n))), ip.claim(what)
+	case argCloneFlags:
+		return cloneText(n, raw), ip.claim(what)
 	case argMountFlags:
 		return flagsOrRaw(n, raw, mountFlagName), ip.claim(what)
 	case argUmountFlags:
@@ -277,6 +281,7 @@ var argKindName = map[argKind]string{
 	argFcntlCmd: "fcntlcmd", argFcntlArg: "fcntlarg",
 	argBpfCmd: "bpfcmd", argPtraceReq: "ptracereq", argEpollOp: "epollop",
 	argMountFlags: "mountflags", argUmountFlags: "umountflags",
+	argCloneFlags: "cloneflags",
 }
 
 // openFlagsIndex says which argument of each open-family syscall holds
@@ -322,6 +327,32 @@ func bitsOrZero(n uint64, tab map[int]string, mask uint64, zero string) string {
 	}
 	if len(parts) == 0 {
 		return zero
+	}
+	return strings.Join(parts, "|")
+}
+
+// cloneText renders clone's flag argument, which is two fields in one
+// register: CSIGNAL in the low byte is the signal the child sends its
+// parent when it dies, and the flags are above it.  a2=0x11 is SIGCHLD
+// with no flags at all, a2=0x1200011 is two flags and SIGCHLD, and
+// a2=0x7f is neither, because 127 is not a signal, so it comes back as
+// the plain hex.  The signal goes last.
+func cloneText(n uint64, raw string) string {
+	var parts []string
+	for b := 8; b < 64; b++ {
+		bit := uint64(1) << uint(b)
+		if n&bit == 0 {
+			continue
+		}
+		if name, ok := cloneFlagName[int(bit)]; ok {
+			parts = append(parts, name)
+		}
+	}
+	if sig, ok := signalName[int(n&0xff)]; ok && n&0xff != 0 {
+		parts = append(parts, sig)
+	}
+	if len(parts) == 0 {
+		return "0x" + raw
 	}
 	return strings.Join(parts, "|")
 }

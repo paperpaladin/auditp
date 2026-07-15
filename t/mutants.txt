@@ -134,3 +134,15 @@ flags-unknown-bit-printed@@@args.go@@@	if len(parts) == 0 {\n		return "0x" + raw
 flags-empty-is-zero@@@args.go@@@	if len(parts) == 0 {\n		return "0x" + raw\n	}@@@	if len(parts) == 0 {\n		return "0x0"\n	}
 flags-32-bits-only@@@args.go@@@	for b := 0; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := tab[int(bit)]; ok {\n			parts = append(parts, name)\n		}\n	}\n	if len(parts) == 0 {@@@	for b := 0; b < 31; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := tab[int(bit)]; ok {\n			parts = append(parts, name)\n		}\n	}\n	if len(parts) == 0 {
 mount-and-umount-share-a-table@@@args.go@@@	case argUmountFlags:\n		return flagsOrRaw(n, raw, umountFlagName), ip.claim(what)@@@	case argUmountFlags:\n		return flagsOrRaw(n, raw, mountFlagName), ip.claim(what)
+# --- clone ---
+# clone-flags-from-bit-zero survives and is equivalent against the
+# table as generated: cloneFlagName is built with a floor of bit 8,
+# because probing bits 0 to 7 as flags records bit 0 as SIGHUP, so
+# there is nothing below bit 8 for the loop to find.  The floor stays
+# in the renderer as well as in the generator, because the two express
+# different facts: the generator's is about what can be probed, and
+# this one is about what the field means.
+clone-signal-first@@@args.go@@@	if sig, ok := signalName[int(n&0xff)]; ok && n&0xff != 0 {\n		parts = append(parts, sig)\n	}@@@	if sig, ok := signalName[int(n&0xff)]; ok && n&0xff != 0 {\n		parts = append([]string{sig}, parts...)\n	}
+clone-signal-zero-named@@@args.go@@@	if sig, ok := signalName[int(n&0xff)]; ok && n&0xff != 0 {@@@	if sig, ok := signalName[int(n&0xff)]; ok {
+clone-flags-from-bit-zero@@@args.go@@@	for b := 8; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := cloneFlagName[int(bit)]; ok {@@@	for b := 0; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := cloneFlagName[int(bit)]; ok {
+clone-signal-mask-wrong@@@args.go@@@	if sig, ok := signalName[int(n&0xff)]; ok && n&0xff != 0 {\n		parts = append(parts, sig)@@@	if sig, ok := signalName[int(n&0x7f)]; ok && n&0x7f != 0 {\n		parts = append(parts, sig)

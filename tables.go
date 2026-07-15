@@ -1918,6 +1918,33 @@ var umountFlagName = map[int]string{
 	2147483648: "UMOUNT_UNUSED",
 }
 
+// clone flags from bit 8 up, CLONE_*.  Below bit 8 is CSIGNAL, the exit signal, which is not a flag field.  22 of 23 agreed with the independent source.
+var cloneFlagName = map[int]string{
+	256:        "CLONE_VM",
+	512:        "CLONE_FS",
+	1024:       "CLONE_FILES",
+	2048:       "CLONE_SIGHAND",
+	8192:       "CLONE_PTRACE",
+	16384:      "CLONE_VFORK",
+	32768:      "CLONE_PARENT",
+	65536:      "CLONE_THREAD",
+	131072:     "CLONE_NEWNS",
+	262144:     "CLONE_SYSVSEM",
+	524288:     "CLONE_SETTLS",
+	1048576:    "CLONE_PARENT_SETTID",
+	2097152:    "CLONE_CHILD_CLEARTID",
+	4194304:    "CLONE_DETACHED",
+	8388608:    "CLONE_UNTRACED",
+	16777216:   "CLONE_CHILD_SETTID",
+	33554432:   "CLONE_STOPPED",
+	67108864:   "CLONE_NEWUTS",
+	134217728:  "CLONE_NEWIPC",
+	268435456:  "CLONE_NEWUSER",
+	536870912:  "CLONE_NEWPID",
+	1073741824: "CLONE_NEWNET",
+	2147483648: "CLONE_IO",
+}
+
 // Single bytes a TTY record's data= field renders as a named key rather than as text: 28 of the 256, probed one at a time.  0x1c to 0x1f are NOT in it, which reading a terminal manual would not tell you: libaudit prints those as octal inside the quoted text.
 var ttyControlName = map[int]string{
 	1:   "<^A>",

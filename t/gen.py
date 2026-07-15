@@ -360,6 +360,18 @@ def build(g):
         syscall_event(g, 166, ARCH64, ["7ffd1000", fl, "0", "0"],
                       exit_=0, success="yes", comm="mesh-agent", exe=EXES[5])
 
+    # clone, whose third argument is a flag word with a signal number
+    # packed into its low byte.
+    # 91 and 1200091 have bit 7 of the signal byte set: masking CSIGNAL
+    # with 0x7f instead of 0xff turns 0x91 into SIGCHLD, and no value
+    # below 0x80 can tell the two masks apart.
+    for fl in ["0", "11", "1200011", "3d0f00", "7f", "ff", "100",
+               "2000000", "1000", "11000011", "ffffffff", "91",
+               "1200091", "80"]:
+        g.count("clone-flag")
+        syscall_event(g, 56, ARCH64, ["7ffd1000", "0", fl, "0"],
+                      exit_=4242, success="yes", comm="widgetd", exe=EXES[0])
+
     for nr in (55, 221):
         g.count("fcntl-i386")
         syscall_event(g, nr, ARCH32, ["3", "8", "c", "0"],
