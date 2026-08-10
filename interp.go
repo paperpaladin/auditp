@@ -354,10 +354,30 @@ func (ip *Interp) syscall(r *Record, raw string) string {
 		// ausearch prints an unknown one.
 		return fmt.Sprintf("unknown-syscall(%d)", nr)
 	}
-	if name, ok := tab[nr]; ok {
-		return name
+	name, ok := tab[nr]
+	if !ok {
+		return fmt.Sprintf("unknown-syscall(%d)", nr)
 	}
-	return fmt.Sprintf("unknown-syscall(%d)", nr)
+	// i386's two multiplexers.  socketcall and ipc each carry many
+	// calls on one syscall number, and ausearch folds the sub-call into
+	// the syscall field rather than naming it in an argument:
+	// socketcall(bind), ipc(semop).  When a0 is a number neither table
+	// names, the bare name is printed and nothing is appended.
+	var mux map[int]string
+	switch name {
+	case "socketcall":
+		mux = socketCallMuxName
+	case "ipc":
+		mux = ipcCallName
+	}
+	if mux != nil {
+		if a0, ok := ip.argValue(r, 0); ok {
+			if sub, ok := mux[int(a0)]; ok {
+				return name + "(" + sub + ")"
+			}
+		}
+	}
+	return name
 }
 
 // escapedFields are the field names whose value the kernel hex-encodes

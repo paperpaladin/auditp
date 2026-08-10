@@ -372,6 +372,29 @@ def build(g):
         syscall_event(g, 56, ARCH64, ["7ffd1000", "0", fl, "0"],
                       exit_=4242, success="yes", comm="widgetd", exe=EXES[0])
 
+    # The MSG_ flags, on all six send and receive calls, and i386's
+    # socketcall, which multiplexes seventeen socket calls through one
+    # syscall number.
+    for nr, idx in ((44, 3), (45, 3), (46, 2), (47, 2), (307, 3), (299, 3)):
+        for fl in ["0", "1", "2", "40", "8000", "20000", "40000000",
+                   "80000000", "4000000", "ffffffff"]:
+            a = ["3", "7ffd1000", "40", "0"]
+            a[idx] = fl
+            g.count("msg-flag")
+            syscall_event(g, nr, ARCH64, a, exit_=16, success="yes",
+                          comm="mesh-agent", exe=EXES[5])
+    for call in [0, 1, 2, 5, 11, 17, 19, 20, 23]:
+        g.count("socketcall")
+        syscall_event(g, 102, ARCH32, ["%x" % call, "bffd1000", "0", "0"],
+                      exit_=4, success="yes", comm="bargen", exe=EXES[2])
+    # ipc is the other i386 multiplexer, and ausearch folds its
+    # sub-call into the syscall field exactly as it does for
+    # socketcall while leaving a0 as a number.
+    for call in [1, 2, 11, 13, 21, 23, 25, 20, 99]:
+        g.count("ipc-call")
+        syscall_event(g, 117, ARCH32, ["%x" % call, "0", "0", "0"],
+                      exit_=0, success="yes", comm="collator", exe=EXES[2])
+
     for nr in (55, 221):
         g.count("fcntl-i386")
         syscall_event(g, nr, ARCH32, ["3", "8", "c", "0"],

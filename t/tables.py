@@ -523,6 +523,8 @@ PTRACE_ABI_H = "/usr/lib/linux/uapi/x86/asm/ptrace-abi.h"
 EPOLL_H = "/usr/include/linux/eventpoll.h"
 MOUNT_H = "/usr/include/linux/mount.h"
 SYS_MOUNT_H = "/usr/include/x86_64-linux-gnu/sys/mount.h"
+NET_H = "/usr/include/linux/net.h"
+IPC_H = "/usr/include/linux/ipc.h"
 # The x86 header is in the list because MAP_32BIT is defined only there,
 # and leaving it out cost a wrong rendering of every mmap that used it.
 MMAN_H = ["/usr/include/asm-generic/mman-common.h",
@@ -895,7 +897,7 @@ def syscall_body(arch, nr, idx, val):
     return SYSCALL_BODY % (arch, nr, a[0], a[1], a[2], a[3])
 
 
-def arg_value_table(label, arch, nr, idx, values, hdr, unknown):
+def arg_value_table(label, arch, nr, idx, values, hdr, unknown, norm=None):
     """Probe one (syscall, argument) pair over a set of values.
 
     hdr maps value to the name its header gives it, and is the second
@@ -915,14 +917,60 @@ def arg_value_table(label, arch, nr, idx, values, hdr, unknown):
         if name is None or name.startswith((unknown, "0x")):
             continue
         out[v] = name
-        if hdr.get(v) == name:
+        want = hdr.get(v)
+        if want is not None and norm is not None:
+            want = norm(want)
+        if want == name:
             agree += 1
         elif v in hdr:
             problems.append("ALIAS %s %d: header says %s, ausearch says %s"
-                            % (label, v, hdr[v], name))
+                            % (label, v, want, name))
         else:
             problems.append("ONESIDED %s %d (%s) is named by ausearch and "
                             "not by the header" % (label, v, name))
+    return out, agree
+
+
+def mux_table(label, arch, nr, values, hdr, norm=None):
+    """Sub-call names that ausearch folds into the syscall field itself.
+
+    i386's socketcall and ipc multiplex many calls through one syscall
+    number, and ausearch renders the SYSCALL field as socketcall(bind)
+    rather than naming the call in a0.  So this reads the syscall field
+    and not an argument, and what it produces drives the syscall
+    interpreter rather than the argument one.
+    """
+    values = sorted(set(values))
+    got = probe([("SYSCALL", syscall_body(arch, nr, 0, v)) for v in values])
+    out = {}
+    agree = 0
+    base = None
+    for i, v in enumerate(values):
+        r = got.get(i)
+        if r is None:
+            continue
+        name = one_field(r, "syscall")
+        if name is None:
+            continue
+        if "(" not in name:
+            base = name
+            continue
+        inner = name[name.index("(") + 1:].rstrip(")")
+        out[v] = inner
+        want = hdr.get(v)
+        if want is not None and norm is not None:
+            want = norm(want)
+        if want == inner:
+            agree += 1
+        elif v in hdr:
+            problems.append("ALIAS %s %d: header says %s, ausearch says %s"
+                            % (label, v, want, inner))
+        else:
+            problems.append("ONESIDED %s %d (%s) is named by ausearch and "
+                            "not by the header" % (label, v, inner))
+    if base is None:
+        problems.append("ONESIDED %s: ausearch never printed the bare "
+                        "syscall name, so the table may be nonsense" % label)
     return out, agree
 
 
@@ -1166,6 +1214,47 @@ def arg_tables():
     res["cloneFlag"] = arg_flag_table("clone flag", ARCH_X8664, 56, 2,
                                       cl, "unknown-clone", minbit=0x100)
 
+    # The MSG_ flags of the six send and receive calls.  They are an
+    # anonymous enum in glibc's bits/socket.h with hex values, not
+    # defines, and not in any uapi header here.
+    msg = {}
+    if need(SOCKET_H):
+        for name, val in enum_values(SOCKET_H, "MSG_").items():
+            msg.setdefault("MSG_" + name, val)
+    res["msgFlag"] = arg_flag_table("message flag", ARCH_X8664, 44, 3,
+                                    msg, "unknown-msg")
+
+    # i386's socketcall multiplexes seventeen socket calls through one
+    # syscall number, and its first argument says which.
+    sysc = {}
+    if need(NET_H):
+        for name, val in defines(NET_H, "SYS_").items():
+            sysc.setdefault(val, "SYS_" + name)
+    # ausearch prints the call in lower case with the SYS_ prefix off,
+    # so socketcall a0=1 is "socket" and not "SYS_SOCKET".  Comparing
+    # the header's spelling directly made all twenty look like aliases
+    # and the agreed count zero, which reads as two sources that share
+    # nothing.
+    res["socketCall"] = arg_value_table("socketcall call", ARCH_I386, 102, 0,
+                                        range(0, 24), sysc,
+                                        "unknown-socketcall",
+                                        norm=lambda n: n[4:].lower())
+
+    # The two i386 multiplexers.  ausearch does not name the sub-call
+    # in a0 at all for ipc; it writes the syscall field as ipc(semop).
+    ipc = {}
+    if need(IPC_H):
+        for name, val in defines(IPC_H, "").items():
+            if name in ("SEMOP", "SEMGET", "SEMCTL", "SEMTIMEDOP",
+                        "MSGSND", "MSGRCV", "MSGGET", "MSGCTL",
+                        "SHMAT", "SHMDT", "SHMGET", "SHMCTL"):
+                ipc.setdefault(val, name)
+    res["ipcCall"] = mux_table("ipc call", ARCH_I386, 117, range(0, 28),
+                               ipc, norm=lambda n: n.lower())
+    res["socketCallMux"] = mux_table("socketcall name", ARCH_I386, 102,
+                                     range(0, 24), sysc,
+                                     norm=lambda n: n[4:].lower())
+
     whence = {}
     if need(FS_H):
         for name, val in defines(FS_H, "SEEK_").items():
@@ -1373,6 +1462,16 @@ package main
             ("mountFlag", "mountFlagName", "mount flags, MS_*"),
             ("umountFlag", "umountFlagName",
              "umount2 flags, MNT_* and UMOUNT_*"),
+            ("msgFlag", "msgFlagName",
+             "send and receive message flags, MSG_*"),
+            ("socketCall", "socketCallName",
+             "i386 socketcall sub-calls, SYS_*"),
+            ("ipcCall", "ipcCallName",
+             "i386 ipc sub-calls.  ausearch folds these into the "
+             "syscall field, as ipc(semop), and leaves a0 alone"),
+            ("socketCallMux", "socketCallMuxName",
+             "the same socketcall names as they appear INSIDE the "
+             "syscall field, socketcall(bind)"),
             ("cloneFlag", "cloneFlagName",
              "clone flags from bit 8 up, CLONE_*.  Below bit 8 is "
              "CSIGNAL, the exit signal, which is not a flag field")):
@@ -1448,7 +1547,8 @@ package main
     for key in ("sockFamily", "sockType", "sockProto", "seekWhence",
                 "protFlag", "protFlagMmap", "accessMode", "fcntlCmd",
                 "bpfCmd", "ptraceReq", "epollOp", "mountFlag",
-                "umountFlag", "cloneFlag"):
+                "umountFlag", "cloneFlag", "msgFlag", "socketCall",
+                "ipcCall", "socketCallMux"):
         tbl, ag = small[key]
         rep.write("%s %d\n" % (key, len(tbl)))
         rep.write("%s-two-source-agree %d\n" % (key, ag))

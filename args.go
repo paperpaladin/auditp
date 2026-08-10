@@ -53,6 +53,8 @@ const (
 	argMountFlags
 	argUmountFlags
 	argCloneFlags
+	argMsgFlags
+	argSocketCall
 )
 
 // oCreat is the value of O_CREAT, which is the same on x86_64 and i386.
@@ -116,6 +118,13 @@ var argKinds = map[string][4]argKind{
 	"epoll_ctl":         {argPlain, argEpollOp, argPlain, argPlain},
 	"mount":             {argPlain, argPlain, argPlain, argMountFlags},
 	"clone":             {argPlain, argPlain, argCloneFlags, argPlain},
+	"sendto":            {argPlain, argPlain, argPlain, argMsgFlags},
+	"recvfrom":          {argPlain, argPlain, argPlain, argMsgFlags},
+	"sendmsg":           {argPlain, argPlain, argMsgFlags, argPlain},
+	"recvmsg":           {argPlain, argPlain, argMsgFlags, argPlain},
+	"sendmmsg":          {argPlain, argPlain, argPlain, argMsgFlags},
+	"recvmmsg":          {argPlain, argPlain, argPlain, argMsgFlags},
+	"socketcall":        {argSocketCall, argPlain, argPlain, argPlain},
 	"umount2":           {argPlain, argUmountFlags, argPlain, argPlain},
 	"fcntl64":           {argPlain, argFcntlCmd, argFcntlArg, argPlain},
 	"exit":              {argExitCode, argPlain, argPlain, argPlain},
@@ -252,6 +261,15 @@ func (ip *Interp) arg(r *Record, f *Field, idx int, raw string) (string, string)
 			int32(uint32(n))), ip.claim(what)
 	case argCloneFlags:
 		return cloneText(n, raw), ip.claim(what)
+	case argMsgFlags:
+		return flagsOrRaw(n, raw, msgFlagName), ip.claim(what)
+	case argSocketCall:
+		if name, ok := socketCallName[int(n)]; ok {
+			return name, ip.claim(what)
+		}
+		// Hex, with no 0x, like bpf and unlike fcntl: ausearch prints
+		// call 23 as unknown-socketcall(17).
+		return fmt.Sprintf("unknown-socketcall(%x)", n), ip.claim(what)
 	case argMountFlags:
 		return flagsOrRaw(n, raw, mountFlagName), ip.claim(what)
 	case argUmountFlags:
@@ -281,7 +299,8 @@ var argKindName = map[argKind]string{
 	argFcntlCmd: "fcntlcmd", argFcntlArg: "fcntlarg",
 	argBpfCmd: "bpfcmd", argPtraceReq: "ptracereq", argEpollOp: "epollop",
 	argMountFlags: "mountflags", argUmountFlags: "umountflags",
-	argCloneFlags: "cloneflags",
+	argCloneFlags: "cloneflags", argMsgFlags: "msgflags",
+	argSocketCall: "socketcall",
 }
 
 // openFlagsIndex says which argument of each open-family syscall holds

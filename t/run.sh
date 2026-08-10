@@ -193,6 +193,9 @@ if [ "$skip" -eq 0 ]; then
 	floor "ptrace requests agreed by two sources" 38 "$(tnum ptraceReq-two-source-agree)"
 	floor "mount flags agreed by two sources"     28 "$(tnum mountFlag-two-source-agree)"
 	floor "clone flags agreed by two sources"     22 "$(tnum cloneFlag-two-source-agree)"
+	floor "message flags agreed by two sources"   20 "$(tnum msgFlag-two-source-agree)"
+	floor "socketcall names agreed by two sources" 20 "$(tnum socketCall-two-source-agree)"
+	floor "ipc call names agreed by two sources"  12 "$(tnum ipcCall-two-source-agree)"
 	floor "signal names agreed by two sources"     30 "$(tnum signal-two-source-agree)"
 	floor "arch names agreed by two sources"       10 "$(tnum arch-two-source-agree)"
 	# One source, not two: these come from ausearch alone, because
@@ -233,13 +236,20 @@ if [ -s "$T/orci.flat" ]; then
 	# A ceiling, so the gap cannot quietly grow, and a floor on the
 	# translations, because 0 wrong is also what a build with every
 	# interpreter deleted would report.
-	if [ "${rf:-99999}" -le 12 ]; then ok "refusals: $rf (ceiling 12)"
-	else no "refusals grew to $rf, ceiling is 12"; fi
+	# A ceiling, not a target, and it is 0 now: every field in the
+	# corpus is either translated and identical or passed through and
+	# identical.  The refusal channel is still live and still tested,
+	# by the sockaddr probe, which refuses five families on purpose
+	# and asserts that it refuses exactly those five.  A ceiling of 0
+	# here with no such assertion anywhere would mean the suite had
+	# stopped being able to tell a refusal from a translation.
+	if [ "${rf:-99999}" -le 0 ]; then ok "refusals: $rf (ceiling 0)"
+	else no "refusals grew to $rf, ceiling is 0"; fi
 	# Each interpreter has to have fired.  An interpreter the corpus
 	# never reaches is untested however many other fields agree.
 	"$AUDITP" -o census -i "$CORPUS" | sed -n 's/^interp //p' > "$T/interp.txt"
 	nint=$(wc -l < "$T/interp.txt")
-	floor "distinct interpreters that fired" 48 "$nint"
+	floor "distinct interpreters that fired" 50 "$nint"
 	for want in arg-dirfd arg-openflags arg-mode4 arg-uid arg-gid \
 	            arg-signal arg-prot arg-prot-mmap arg-mapflags \
 	            arg-sockfamily arg-socktype arg-sockproto arg-access \
@@ -247,7 +257,7 @@ if [ -s "$T/orci.flat" ]; then
 	            saddr-inet saddr-inet6 saddr-local saddr-netlink \
 	            tty-data arg-fcntlcmd arg-bpfcmd arg-ptracereq \
 	            arg-epollop arg-mountflags arg-umountflags \
-	            arg-cloneflags \
+	            arg-cloneflags arg-msgflags arg-socketcall \
 	            nested proctitle cap seccomp-code family list mode \
 	            oflag mapflags sig res exit arch syscall uid gid ses \
 	            @time @type; do

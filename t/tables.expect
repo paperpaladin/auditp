@@ -55,8 +55,16 @@ umountFlag 5
 umountFlag-two-source-agree 4
 cloneFlag 23
 cloneFlag-two-source-agree 22
+msgFlag 22
+msgFlag-two-source-agree 20
+socketCall 20
+socketCall-two-source-agree 20
+ipcCall 13
+ipcCall-two-source-agree 12
+socketCallMux 20
+socketCallMux-two-source-agree 20
 problems 0
-notes 48
+notes 53
   ALIAS arch 40000028: header computes arm, ausearch says armeb
   ALIAS audit filter list 6: header says fs, ausearch says filesystem
   ALIAS audit filter list 7: header says uring_exit, ausearch says io_uring
@@ -80,6 +88,11 @@ notes 48
   COUNT 42 of 53 AUDIT_ARCH_* values are unknown to ausearch and render as unknown-elf-type(hex)
   DIVERGE signal 30: ausearch says IGPWR, both sources say SIGPWR, auditp follows the sources
   ONESIDED clone flag bit 0x1000 (CLONE_PIDFD) has no name in ausearch
+  ONESIDED ipc call 25 (dipc) is named by ausearch and not by the header
+  ONESIDED message flag bit 0x20000 is MSG_SENDPAGE_NOTLAST to ausearch and has no name in the header
+  ONESIDED message flag bit 0x2000000 (MSG_SOCK_DEVMEM) has no name in ausearch
+  ONESIDED message flag bit 0x4000000 (MSG_ZEROCOPY) has no name in ausearch
+  ONESIDED message flag bit 0x80000000 is MSG_CMSG_COMPAT to ausearch and has no name in the header
   ONESIDED mmap flag bit 0x8 (MAP_DROPPABLE) has no name in ausearch
   ONESIDED mmap flag bit 0x80 (MAP_ABOVE4G) has no name in ausearch
   ONESIDED mmap protection bit 0x1000000 (PROT_GROWSDOWN) has no name in ausearch

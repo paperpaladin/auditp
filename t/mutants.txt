@@ -146,3 +146,9 @@ clone-signal-first@@@args.go@@@	if sig, ok := signalName[int(n&0xff)]; ok && n&0
 clone-signal-zero-named@@@args.go@@@	if sig, ok := signalName[int(n&0xff)]; ok && n&0xff != 0 {@@@	if sig, ok := signalName[int(n&0xff)]; ok {
 clone-flags-from-bit-zero@@@args.go@@@	for b := 8; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := cloneFlagName[int(bit)]; ok {@@@	for b := 0; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := cloneFlagName[int(bit)]; ok {
 clone-signal-mask-wrong@@@args.go@@@	if sig, ok := signalName[int(n&0xff)]; ok && n&0xff != 0 {\n		parts = append(parts, sig)@@@	if sig, ok := signalName[int(n&0x7f)]; ok && n&0x7f != 0 {\n		parts = append(parts, sig)
+# --- message flags, socketcall and ipc ---
+msg-and-mount-share-a-table@@@args.go@@@	case argMsgFlags:\n		return flagsOrRaw(n, raw, msgFlagName), ip.claim(what)@@@	case argMsgFlags:\n		return flagsOrRaw(n, raw, mountFlagName), ip.claim(what)
+socketcall-unknown-decimal@@@args.go@@@		return fmt.Sprintf("unknown-socketcall(%x)", n), ip.claim(what)@@@		return fmt.Sprintf("unknown-socketcall(%d)", n), ip.claim(what)
+mux-not-folded-into-syscall@@@interp.go@@@	if mux != nil {\n		if a0, ok := ip.argValue(r, 0); ok {@@@	if false {\n		if a0, ok := ip.argValue(r, 0); ok {
+mux-tables-swapped@@@interp.go@@@	case "socketcall":\n		mux = socketCallMuxName\n	case "ipc":\n		mux = ipcCallName@@@	case "socketcall":\n		mux = ipcCallName\n	case "ipc":\n		mux = socketCallMuxName
+mux-unknown-still-appended@@@interp.go@@@			if sub, ok := mux[int(a0)]; ok {\n				return name + "(" + sub + ")"\n			}@@@			sub := mux[int(a0)]\n			return name + "(" + sub + ")"

@@ -1918,6 +1918,97 @@ var umountFlagName = map[int]string{
 	2147483648: "UMOUNT_UNUSED",
 }
 
+// send and receive message flags, MSG_*.  20 of 22 agreed with the independent source.
+var msgFlagName = map[int]string{
+	1:          "MSG_OOB",
+	2:          "MSG_PEEK",
+	4:          "MSG_DONTROUTE",
+	8:          "MSG_CTRUNC",
+	16:         "MSG_PROXY",
+	32:         "MSG_TRUNC",
+	64:         "MSG_DONTWAIT",
+	128:        "MSG_EOR",
+	256:        "MSG_WAITALL",
+	512:        "MSG_FIN",
+	1024:       "MSG_SYN",
+	2048:       "MSG_CONFIRM",
+	4096:       "MSG_RST",
+	8192:       "MSG_ERRQUEUE",
+	16384:      "MSG_NOSIGNAL",
+	32768:      "MSG_MORE",
+	65536:      "MSG_WAITFORONE",
+	131072:     "MSG_SENDPAGE_NOTLAST",
+	262144:     "MSG_BATCH",
+	536870912:  "MSG_FASTOPEN",
+	1073741824: "MSG_CMSG_CLOEXEC",
+	2147483648: "MSG_CMSG_COMPAT",
+}
+
+// i386 socketcall sub-calls, SYS_*.  20 of 20 agreed with the independent source.
+var socketCallName = map[int]string{
+	1:  "socket",
+	2:  "bind",
+	3:  "connect",
+	4:  "listen",
+	5:  "accept",
+	6:  "getsockname",
+	7:  "getpeername",
+	8:  "socketpair",
+	9:  "send",
+	10: "recv",
+	11: "sendto",
+	12: "recvfrom",
+	13: "shutdown",
+	14: "setsockopt",
+	15: "getsockopt",
+	16: "sendmsg",
+	17: "recvmsg",
+	18: "accept4",
+	19: "recvmmsg",
+	20: "sendmmsg",
+}
+
+// i386 ipc sub-calls.  ausearch folds these into the syscall field, as ipc(semop), and leaves a0 alone.  12 of 13 agreed with the independent source.
+var ipcCallName = map[int]string{
+	1:  "semop",
+	2:  "semget",
+	3:  "semctl",
+	4:  "semtimedop",
+	11: "msgsnd",
+	12: "msgrcv",
+	13: "msgget",
+	14: "msgctl",
+	21: "shmat",
+	22: "shmdt",
+	23: "shmget",
+	24: "shmctl",
+	25: "dipc",
+}
+
+// the same socketcall names as they appear INSIDE the syscall field, socketcall(bind).  20 of 20 agreed with the independent source.
+var socketCallMuxName = map[int]string{
+	1:  "socket",
+	2:  "bind",
+	3:  "connect",
+	4:  "listen",
+	5:  "accept",
+	6:  "getsockname",
+	7:  "getpeername",
+	8:  "socketpair",
+	9:  "send",
+	10: "recv",
+	11: "sendto",
+	12: "recvfrom",
+	13: "shutdown",
+	14: "setsockopt",
+	15: "getsockopt",
+	16: "sendmsg",
+	17: "recvmsg",
+	18: "accept4",
+	19: "recvmmsg",
+	20: "sendmmsg",
+}
+
 // clone flags from bit 8 up, CLONE_*.  Below bit 8 is CSIGNAL, the exit signal, which is not a flag field.  22 of 23 agreed with the independent source.
 var cloneFlagName = map[int]string{
 	256:        "CLONE_VM",
