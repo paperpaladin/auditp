@@ -152,3 +152,7 @@ socketcall-unknown-decimal@@@args.go@@@		return fmt.Sprintf("unknown-socketcall(
 mux-not-folded-into-syscall@@@interp.go@@@	if mux != nil {\n		if a0, ok := ip.argValue(r, 0); ok {@@@	if false {\n		if a0, ok := ip.argValue(r, 0); ok {
 mux-tables-swapped@@@interp.go@@@	case "socketcall":\n		mux = socketCallMuxName\n	case "ipc":\n		mux = ipcCallName@@@	case "socketcall":\n		mux = ipcCallName\n	case "ipc":\n		mux = socketCallMuxName
 mux-unknown-still-appended@@@interp.go@@@			if sub, ok := mux[int(a0)]; ok {\n				return name + "(" + sub + ")"\n			}@@@			sub := mux[int(a0)]\n			return name + "(" + sub + ")"
+# --- the enumerated gap ---
+gap-hides-a-pair@@@args.go@@@				k, ok := argKinds[sysname]\n				if ok && k[idx] != argPlain {\n					continue\n				}@@@				k, ok := argKinds[sysname]\n				if ok && k[idx] != argPlain {\n					continue\n				}\n				if sysname == "prctl" {\n					continue\n				}
+gap-unimpl-guessed@@@args.go@@@	if kind == argUnimpl {\n		return raw, ip.refuse("a" + strconv.Itoa(idx) + "/" + sysname)\n	}@@@	if kind == argUnimpl {\n		return "0x" + raw, ip.claim("arg-plain")\n	}
+chown32-not-a-uid@@@args.go@@@	"chown32":           {argPlain, argUID, argPlain, argPlain},@@@	"chown32":           {argPlain, argPlain, argPlain, argPlain},

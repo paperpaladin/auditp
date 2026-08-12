@@ -263,6 +263,25 @@ SIGNALS = [1, 2, 3, 4, 6, 8, 9, 11, 13, 15, 17, 19, 29, 30, 31, 32]
 # fcntl commands: the low ones, F_SETOWN (whose argument is a uid), two
 # above F_LINUX_SPECIFIC_BASE, and one nothing names.
 FCNTL_CMDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1024, 1030, 1033, 99]
+# (arch, syscall number, argument index, value): one per pair ausearch
+# interprets and auditp refuses.  The value is one ausearch renders as
+# a name, so the record would be a WRONG answer and not a silent
+# agreement if auditp ever started guessing at these.
+GAP_RECORDS = [
+    (ARCH64, 227, 0, "0"), (ARCH64, 431, 1, "1"), (ARCH64, 432, 1, "1"),
+    (ARCH64, 432, 2, "1"), (ARCH64, 430, 1, "1"), (ARCH64, 97, 0, "3"),
+    (ARCH64, 55, 1, "1"), (ARCH64, 55, 2, "2"), (ARCH64, 240, 2, "1a4"),
+    (ARCH64, 135, 0, "0"), (ARCH64, 157, 0, "f"), (ARCH64, 144, 1, "1"),
+    (ARCH64, 308, 1, "20000000"), (ARCH64, 160, 0, "7"),
+    (ARCH64, 54, 1, "1"), (ARCH64, 54, 2, "2"), (ARCH64, 29, 2, "3b6"),
+    (ARCH64, 272, 0, "20000000"),
+    (ARCH32, 264, 0, "0"), (ARCH32, 76, 0, "3"), (ARCH32, 365, 1, "1"),
+    (ARCH32, 365, 2, "2"), (ARCH32, 277, 2, "1a4"), (ARCH32, 136, 0, "0"),
+    (ARCH32, 172, 0, "f"), (ARCH32, 156, 1, "1"),
+    (ARCH32, 346, 1, "20000000"), (ARCH32, 75, 0, "7"),
+    (ARCH32, 366, 1, "1"), (ARCH32, 366, 2, "2"), (ARCH32, 395, 2, "3b6"),
+    (ARCH32, 310, 0, "20000000"),
+]
 FAMILIES = [1, 2, 10, 16, 17]
 
 
@@ -394,6 +413,18 @@ def build(g):
         g.count("ipc-call")
         syscall_event(g, 117, ARCH32, ["%x" % call, "0", "0", "0"],
                       exit_=0, success="yes", comm="collator", exe=EXES[2])
+
+    # One record for every (arch, syscall, argument) ausearch
+    # interprets and auditp does not, so that the gap is exercised and
+    # counted rather than being a list nothing reaches.  The suite
+    # requires the set of refusals the corpus produces to be exactly
+    # the set auditp's own census calls the gap.
+    for arch, nr, idx, val in GAP_RECORDS:
+        a = ["3", "1", "2", "4"]
+        a[idx] = val
+        g.count("gap-record")
+        syscall_event(g, nr, arch, a, exit_=0, success="yes",
+                      comm="qux-helper", exe=EXES[3])
 
     for nr in (55, 221):
         g.count("fcntl-i386")

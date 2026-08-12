@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -96,6 +97,7 @@ var argKinds = map[string][4]argKind{
 	"unlinkat":          {argDirFD, argPlain, argPlain, argPlain},
 	"utimensat":         {argDirFD, argPlain, argPlain, argPlain},
 	"chown":             {argPlain, argUID, argPlain, argPlain},
+	"chown32":           {argPlain, argUID, argPlain, argPlain},
 	"setuid":            {argUID, argPlain, argPlain, argPlain},
 	"setfsuid":          {argUID, argPlain, argPlain, argPlain},
 	"setreuid":          {argUID, argUID, argPlain, argPlain},
@@ -463,6 +465,36 @@ func (ip *Interp) syscallOf(r *Record) (string, int) {
 		}
 	}
 	return "", a
+}
+
+// argGap enumerates the (arch, syscall, argument) triples ausearch
+// interprets and auditp has no kind for.  It is printed by the census
+// so that the gap is a list and not a number: the suite requires every
+// line of it to be reached by the corpus and refused there, which is
+// the only way a refusal channel with nothing in it can be told from a
+// refusal channel that has stopped working.
+func argGap() []string {
+	var out []string
+	for _, t := range []struct {
+		arch string
+		tab  map[string]int
+	}{{"x86_64", argInterpX8664}, {"i386", argInterpI386}} {
+		for sysname, mask := range t.tab {
+			for idx := 0; idx < 4; idx++ {
+				if mask&(1<<uint(idx)) == 0 {
+					continue
+				}
+				k, ok := argKinds[sysname]
+				if ok && k[idx] != argPlain {
+					continue
+				}
+				out = append(out, fmt.Sprintf("%s a%d/%s",
+					t.arch, idx, sysname))
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func argInterpreted(arch int, sysname string, idx int) bool {

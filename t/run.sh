@@ -243,8 +243,31 @@ if [ -s "$T/orci.flat" ]; then
 	# and asserts that it refuses exactly those five.  A ceiling of 0
 	# here with no such assertion anywhere would mean the suite had
 	# stopped being able to tell a refusal from a translation.
-	if [ "${rf:-99999}" -le 0 ]; then ok "refusals: $rf (ceiling 0)"
-	else no "refusals grew to $rf, ceiling is 0"; fi
+	# A ceiling, and the floor beside it is the point: the corpus
+	# holds one record per unimplemented pair, so the refusal count
+	# is the size of the gap and not zero.  A refusal channel with
+	# nothing in it cannot be told from one that has stopped working.
+	if [ "${rf:-99999}" -le 45 ]; then ok "refusals: $rf (ceiling 45)"
+	else no "refusals grew to $rf, ceiling is 45"; fi
+	floor "fields refused, one per unimplemented pair" 30 "${rf:-0}"
+	# The gap, enumerated.  auditp's census lists every (arch,
+	# syscall, argument) ausearch interprets and auditp has no kind
+	# for, and the corpus holds one record for each.  The two sets
+	# have to be equal: a gap entry the corpus never reaches is an
+	# untested refusal, and a refusal the gap does not list is a
+	# field auditp stopped interpreting without anyone noticing.
+	"$AUDITP" -o census "$CORPUS" | sed -n 's/^gap [a-z0-9_]* //p' \
+		| sort -u > "$T/gap.want"
+	"$AUDITP" -o census -i "$CORPUS" | sed -n 's/^unclaimed //p' \
+		| awk '$1 ~ "/" {print $1}' | sort -u > "$T/gap.got"
+	ng=$(wc -l < "$T/gap.want")
+	if cmp -s "$T/gap.want" "$T/gap.got"; then
+		ok "the $ng unimplemented argument pairs are all reached by the corpus and all refused"
+	else
+		no "the refused pairs are not the gap: $(diff "$T/gap.want" "$T/gap.got" | tr '\n' ' ' | cut -c1-120)"
+	fi
+	floor "unimplemented argument pairs enumerated" 15 "$ng"
+
 	# Each interpreter has to have fired.  An interpreter the corpus
 	# never reaches is untested however many other fields agree.
 	"$AUDITP" -o census -i "$CORPUS" | sed -n 's/^interp //p' > "$T/interp.txt"

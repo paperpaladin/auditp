@@ -227,6 +227,9 @@ func writeCensus(w io.Writer, st *Stats) {
 	dump(w, "name", st.Names)
 	dump(w, "interp", st.Interp)
 	dump(w, "unclaimed", st.Refused)
+	for _, g := range argGap() {
+		fmt.Fprintf(w, "gap %s\n", g)
+	}
 }
 
 func sortedKeys(m map[string]int) []string {
