@@ -187,7 +187,13 @@ def bitflags(label, hdr, record_type, body_fmt, field, skip=(), base=0):
         if name in skip or val == 0 or (val & (val - 1)) != 0:
             continue
         bits.setdefault(val, name)
-    keys = sorted(bits)
+    # Every bit, not only the ones the header names under this prefix.
+    # O_ASYNC is the reason: asm-generic/fcntl.h calls that bit FASYNC
+    # and ausearch calls it O_ASYNC, so a table gathered from the O_
+    # prefix was missing it and every flag word with bit 0x2000 in it
+    # rendered one name short.  The fuzzer found that; no record in the
+    # corpus had the bit.
+    keys = sorted(set(bits) | {1 << b for b in range(32)})
     # The base bit itself is probed alone, or stripping it would leave
     # nothing: the first version emitted an empty name for PROT_EXEC and
     # for every bit the renderer does not know.
@@ -203,8 +209,9 @@ def bitflags(label, hdr, record_type, body_fmt, field, skip=(), base=0):
             continue
         val = one_field(r, field)
         if val is None:
-            problems.append("ONESIDED %s bit 0x%x (%s) field vanished"
-                            % (label, v, bits[v]))
+            if v in bits:
+                problems.append("ONESIDED %s bit 0x%x (%s) field vanished"
+                                % (label, v, bits[v]))
             continue
         # ausearch renders a flag word as a list that always starts with
         # the zero-valued base: O_RDONLY for open flags, MAP_FILE for
@@ -216,8 +223,9 @@ def bitflags(label, hdr, record_type, body_fmt, field, skip=(), base=0):
                            if p != bits.get(base, ""))
         val = val.rsplit("|", 1)[-1]
         if val == "":
-            problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
-                            "ausearch" % (label, v, bits[v]))
+            if v in bits:
+                problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
+                                "ausearch" % (label, v, bits[v]))
             continue
         if val.startswith("0x"):
             # ausearch has no name for this bit.  It prints 0x0x8 for
@@ -225,12 +233,17 @@ def bitflags(label, hdr, record_type, body_fmt, field, skip=(), base=0):
             # literal 0x in front of a %#x), and putting that string in
             # the table would make auditp copy it.  Left out; the README
             # records the defect.
-            problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
-                            "ausearch, which prints %s"
-                            % (label, v, bits[v], val))
+            if v in bits:
+                problems.append("ONESIDED %s bit 0x%x (%s) has no name in "
+                                "ausearch, which prints %s"
+                                % (label, v, bits[v], val))
             continue
         out[v] = val
-        if val == bits[v] or val.lower() == bits[v].lower():
+        if v not in bits:
+            problems.append("ONESIDED %s bit 0x%x is %s to ausearch and "
+                            "has no name under that prefix in the header"
+                            % (label, v, val))
+        elif val == bits[v] or val.lower() == bits[v].lower():
             agree += 1
         else:
             problems.append("ALIAS %s bit 0x%x: header says %s, ausearch "

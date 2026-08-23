@@ -156,3 +156,21 @@ mux-unknown-still-appended@@@interp.go@@@			if sub, ok := mux[int(a0)]; ok {\n		
 gap-hides-a-pair@@@args.go@@@				k, ok := argKinds[sysname]\n				if ok && k[idx] != argPlain {\n					continue\n				}@@@				k, ok := argKinds[sysname]\n				if ok && k[idx] != argPlain {\n					continue\n				}\n				if sysname == "prctl" {\n					continue\n				}
 gap-unimpl-guessed@@@args.go@@@	if kind == argUnimpl {\n		return raw, ip.refuse("a" + strconv.Itoa(idx) + "/" + sysname)\n	}@@@	if kind == argUnimpl {\n		return "0x" + raw, ip.claim("arg-plain")\n	}
 chown32-not-a-uid@@@args.go@@@	"chown32":           {argPlain, argUID, argPlain, argPlain},@@@	"chown32":           {argPlain, argPlain, argPlain, argPlain},
+# --- what the fuzzer found ---
+# proctitle-leading-nul-becomes-space survives and cannot be killed by
+# comparison, because ausearch's own rendering of a proctitle that
+# starts with a NUL is nonsense.  Its handler splits the HEX TEXT on
+# the two characters 00 rather than splitting the decoded bytes, so
+# proctitle=002F62696E2F6C73002D6C comes back as "/bin/ls -l C73002D6C"
+# with eight raw hex digits on the end.  There is no answer to compare
+# against, so auditp does what every other escaped field does, skips
+# the one leading NUL, and the README says the choice is unverified.
+escape-leading-nul-ends-string@@@interp.go@@@	if len(b) > 1 && b[0] == 0 {\n		b = b[1:]\n	}\n	var out []byte@@@	var out []byte
+decode-single-nul-is-empty@@@interp.go@@@		if len(b) == 1 && b[0] == 0 {\n			return f.Value()\n		}@@@		if false {\n			return f.Value()\n		}
+tty-data-only-in-tty-records@@@interp.go@@@	case f.Name == "data":@@@	case f.Name == "data" && r.Type == "TTY":
+tty-data-renders-non-hex@@@interp.go@@@		if !f.HexShaped() {\n			return string(f.Raw), ip.claim("tty-data")\n		}@@@		if false {\n			return string(f.Raw), ip.claim("tty-data")\n		}
+tty-data-odd-nibble-kept@@@tty.go@@@	out := make([]byte, len(f.Raw)/2)@@@	out := make([]byte, (len(f.Raw)+1)/2)
+seccomp-unknown-masked@@@interp.go@@@	return fmt.Sprintf("unknown-seccomp-code(0x%x)", n)@@@	return fmt.Sprintf("unknown-seccomp-code(0x%x)", a)
+seccomp-unknown-padded@@@interp.go@@@	return fmt.Sprintf("unknown-seccomp-code(0x%x)", n)@@@	return fmt.Sprintf("unknown-seccomp-code(0x%08x)", n)
+oflag-accmode-enum@@@interp.go@@@	if !accmode || n&3 == 0 {@@@	if !accmode || n&3 == 0 || n&3 == 3 {
+proctitle-leading-nul-becomes-space@@@interp.go@@@	if len(b) > 1 && b[0] == 0 {\n		b = b[1:]\n	}\n	c := make([]byte, len(b))@@@	c := make([]byte, len(b))

@@ -5,3 +5,5 @@
 # Scratch: harvested corpora, oracle transcripts, mutant builds.
 /scratch/
 /t/tmp.*
+# Python leaves this behind when a test script imports another.
+/t/__pycache__/

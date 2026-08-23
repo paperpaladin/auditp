@@ -36,6 +36,7 @@ import sys
 import time
 
 AUSEARCH = "/usr/sbin/ausearch"
+INTERPRET = False
 
 # type=X msg=audit(09/02/2026 19:12:06.243:4) : BODY     (-i)
 # type=X msg=audit(1788376326.243:4): BODY               (no -i)
@@ -61,12 +62,19 @@ def field_at(body, i):
 def scan_value(body, i):
     if i >= len(body) or body[i] == " ":
         return ""
-    if body[i] == "{":
+    if body.startswith("{ saddr_fam=", i):
         # ausearch renders a decoded sockaddr as a brace-delimited group of
         # its own invented sub-fields: saddr={ saddr_fam=inet laddr=... }.
         # Without this the group's contents are read as record fields and
         # turn up as three fields auditp never emitted, which read as a
         # parser defect and are a rendering convention.
+        #
+        # The whole prefix and not just the brace.  A decoded value can
+        # begin with one: a cwd of "{@kekPF..." made this swallow the
+        # rest of the record up to the next closing brace, which put
+        # three later fields inside cwd and reported them missing.  The
+        # fuzzer found it, and the corpus could not have, because no
+        # path in it starts with a brace.
         j = body.find("}", i)
         return body[i:j + 1] if j >= 0 else body[i:]
     if body[i] == '"':
@@ -157,12 +165,17 @@ def rows_for_record(typ, key, body, idx, stamp):
     if prefix:
         yield (key, idx, "@prefix", prefix)
     for name, raw in fields:
-        # TTY data is the one field whose quotes are part of what
-        # ausearch rendered rather than the quoting of a string, so it
-        # is the one field not unquoted.  Same class of special case as
-        # the braces around a decoded sockaddr, and the same reason:
-        # this is ausearch's presentation and not the log's encoding.
-        if typ == "TTY" and name == "data":
+        # data= is the one field whose quotes are part of what ausearch
+        # rendered rather than the quoting of a string, so it is the
+        # one field not unquoted.  Same class of special case as the
+        # braces around a decoded sockaddr, and the same reason: this
+        # is ausearch's presentation and not the log's encoding.  Not
+        # gated on the record type, because ausearch renders data= as
+        # keystrokes in any record, measured on four types.  It IS
+        # gated on -i: without it ausearch prints the field as the log
+        # wrote it, quotes and all, and those quotes are the encoding
+        # again and come off like any other field's.
+        if name == "data" and INTERPRET:
             yield (key, idx, name, raw)
             continue
         yield (key, idx, name, unquote(raw))
@@ -178,6 +191,8 @@ def main():
     ap.add_argument("--interpret", action="store_true")
     args = ap.parse_args()
 
+    global INTERPRET
+    INTERPRET = args.interpret
     cmd = [AUSEARCH, "-if", args.log]
     if args.interpret:
         cmd.insert(1, "-i")

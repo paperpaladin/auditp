@@ -23,6 +23,17 @@ mutants: all
 truncate: all
 	@python3 t/truncate.py --stride 1 --bytes 0 --lines 1 --flips 2000
 
+# Twenty-five fuzz seeds instead of the three make test runs.
+fuzz: all
+	@for s in $$(seq 1 25); do \
+		python3 t/fuzz.py --seed $$s --count 800 --out t/tmp.fz.log >/dev/null; \
+		./auditp -o flat -i t/tmp.fz.log > t/tmp.fz.ours; \
+		python3 t/oracle.py --interpret t/tmp.fz.log > t/tmp.fz.orc 2>/dev/null; \
+		printf 'seed %s: ' $$s; \
+		python3 t/compare.py --oracle-declines --known t/known-diff.txt \
+			 --known-may-be-unmet --ours t/tmp.fz.ours --oracle t/tmp.fz.orc | head -1; \
+	done; rm -f t/tmp.fz.*
+
 vet: $(SRC)
 	$(GO) vet ./...
 
@@ -30,4 +41,4 @@ clean:
 	rm -f auditp auditp-cover
 	rm -rf scratch
 
-.PHONY: all test mutants truncate vet clean
+.PHONY: all test mutants truncate fuzz vet clean

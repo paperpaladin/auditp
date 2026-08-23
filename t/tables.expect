@@ -19,7 +19,7 @@ nfproto 8
 nfproto-two-source-agree 7
 filter-list 6
 filter-list-two-source-agree 4
-open-flag 17
+open-flag 18
 open-flag-two-source-agree 17
 map-flag 17
 map-flag-two-source-agree 17
@@ -64,7 +64,7 @@ ipcCall-two-source-agree 12
 socketCallMux 20
 socketCallMux-two-source-agree 20
 problems 0
-notes 53
+notes 54
   ALIAS arch 40000028: header computes arm, ausearch says armeb
   ALIAS audit filter list 6: header says fs, ausearch says filesystem
   ALIAS audit filter list 7: header says uring_exit, ausearch says io_uring
@@ -101,6 +101,7 @@ notes 53
   ONESIDED mprotect protection bit 0x1000000 (PROT_GROWSDOWN) has no name in ausearch
   ONESIDED mprotect protection bit 0x2000000 (PROT_GROWSUP) has no name in ausearch
   ONESIDED mprotect protection bit 0x8 (PROT_SEM) has no name in ausearch
+  ONESIDED open flag bit 0x2000 is O_ASYNC to ausearch and has no name under that prefix in the header
   ONESIDED socket family 0 (unspec) is not named by ausearch
   ONESIDED socket family 27 (ib) is not named by ausearch
   ONESIDED socket family 28 (mpls) is not named by ausearch

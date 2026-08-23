@@ -198,8 +198,27 @@ func (ip *Interp) FieldFlag(r *Record, f *Field) (string, string) {
 		return mapFlagsText(raw), ip.claim("mapflags")
 	case f.Name == "saddr" && r.Type == "SOCKADDR":
 		return ip.saddr(f)
-	case f.Name == "data" && r.Type == "TTY":
-		return ttyText(decodeEscaped(f)), ip.claim("tty-data")
+	case f.Name == "data":
+		// Any record type, not only TTY.  ausearch renders data= as
+		// keystrokes wherever it appears, measured on BPF, PATH and
+		// USER_CMD records as well as TTY ones, and the type gate
+		// that used to be here was a guess.  The fuzzer found it: it
+		// puts field names into record types that never carry them,
+		// which is the one thing a corpus written from real shapes
+		// cannot do.
+		//
+		// Only a hex value is rendered.  data=ls comes back as ls and
+		// not as "ls", data=(null) as (null), and data="ls -l" with
+		// its quotes still on, because ausearch passes anything that
+		// is not hex through untouched.  An empty value is (null),
+		// which is what the kernel would have written.
+		if len(f.Raw) == 0 {
+			return "(null)", ip.claim("tty-data")
+		}
+		if !f.HexShaped() {
+			return string(f.Raw), ip.claim("tty-data")
+		}
+		return ttyText(ttyBytes(f)), ip.claim("tty-data")
 	case renderRefused[f.Name]:
 		return raw, ip.refuse(f.Name)
 	case escapedFields[f.Name]:
@@ -453,6 +472,15 @@ func isEscapedField(r *Record, f *Field) bool {
 // to be at 0x20 and at 0x7f, and only one of those is where a C
 // programmer would have guessed.
 func escapeText(b []byte) string {
+	// One leading NUL is skipped rather than ending the string.  The
+	// rest still ends at the next one, so 00 41 42 43 is ABC, 41 00 42
+	// is A, and 00 00 41 is empty.  Measured over nine placements; it
+	// is not a rule anyone would guess, and auditp printed nothing at
+	// all for every value starting with a NUL until the fuzzer wrote
+	// one.
+	if len(b) > 1 && b[0] == 0 {
+		b = b[1:]
+	}
 	var out []byte
 	for _, c := range b {
 		switch {
@@ -473,7 +501,15 @@ func escapeText(b []byte) string {
 // is escaped by ausearch too even though the kernel would never write one.
 func decodeEscaped(f *Field) []byte {
 	if f.HexShaped() {
-		return f.HexDecode()
+		b := f.HexDecode()
+		// A value that decodes to one NUL byte is printed as the hex
+		// it was written as: ausearch renders path=00 as the two
+		// characters 00 and not as an empty value.  Anything longer
+		// goes through the decoder.
+		if len(b) == 1 && b[0] == 0 {
+			return f.Value()
+		}
+		return b
 	}
 	return f.Value()
 }
@@ -485,6 +521,12 @@ func decodeEscaped(f *Field) []byte {
 // checked specifically, because it holds a command line too and does NOT
 // do this.
 func proctitleText(b []byte) string {
+	// The leading-NUL rule applies here too and has to be applied
+	// before the NULs become spaces, or the value comes out with a
+	// space in front of it where ausearch has none.
+	if len(b) > 1 && b[0] == 0 {
+		b = b[1:]
+	}
 	c := make([]byte, len(b))
 	copy(c, b)
 	for i := range c {
@@ -628,7 +670,13 @@ func seccompText(raw string) string {
 	if name, ok := seccompCode[int(a)]; ok {
 		return name
 	}
-	return fmt.Sprintf("unknown-seccomp-code(0x%08x)", a)
+	// The UNMASKED value in the unknown case.  ausearch prints
+	// unknown-seccomp-code(0xac052d01) where the masked form would be
+	// 0x2c050000, so a renderer that reports what it looked up rather
+	// than what it was given disagrees on every code outside the
+	// table.  Found by the fuzzer; the corpus only ever held codes
+	// that are in it.
+	return fmt.Sprintf("unknown-seccomp-code(0x%x)", n)
 }
 
 // familyText is the NETFILTER protocol family, not the socket address
@@ -694,18 +742,22 @@ func flagsText(raw string, tab map[int]string, base string, accmode bool) string
 	if err != nil {
 		return raw
 	}
-	parts := []string{base}
-	if accmode {
-		switch n & 3 {
-		case 1:
-			parts = []string{"O_WRONLY"}
-		case 2:
-			parts = []string{"O_RDWR"}
-		case 3:
-			parts = []string{"O_ACCMODE"}
-		}
-		n &^= 3
+	var parts []string
+	if !accmode || n&3 == 0 {
+		// The base is the name of the zero case and is printed only
+		// when the low bits are zero.  For open flags that is
+		// O_RDONLY, and ausearch prints oflag=0x40 as
+		// O_RDONLY|O_CREAT.
+		parts = []string{base}
 	}
+	// O_WRONLY and O_RDWR are ordinary bits in the table and are NOT an
+	// access-mode enum.  ausearch prints oflag=3 as O_WRONLY|O_RDWR and
+	// not as O_ACCMODE, which is wrong about the kernel and is what it
+	// does; the first version here had the enum and disagreed on every
+	// value whose low two bits are both set.  Found by the fuzzer: the
+	// corpus had 0, 1, 2 and a dozen values above them and nothing with
+	// 3, so the one case where the two readings differ was the one case
+	// nobody wrote down.
 	for b := 0; b < 64; b++ {
 		bit := uint64(1) << uint(b)
 		if n&bit == 0 {

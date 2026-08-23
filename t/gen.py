@@ -242,7 +242,13 @@ ARCH32 = "40000003"
 
 # Open flags, protection bits, address families, signals and errnos, all
 # kernel constants.
-O_FLAGS = ["0", "1", "2", "42", "241", "80000", "80042", "C1", "200000"]
+# 3 and 43 have both low bits set, which is the only place the
+# access-mode field can be read two ways: ausearch prints
+# O_WRONLY|O_RDWR where a reader that treats the low two bits as
+# an enum prints O_ACCMODE.  The corpus had neither value and
+# the fuzzer found it.
+O_FLAGS = ["0", "1", "2", "3", "42", "43", "241", "80000", "80042",
+           "C1", "200000"]
 # 8, 9 and c are PROT_SEM, which lives outside the three-bit mask the
 # renderer tests for PROT_NONE.  Without 8 on its own the suite could
 # not tell a renderer that masks correctly from one that does not: the
@@ -425,6 +431,33 @@ def build(g):
         g.count("gap-record")
         syscall_event(g, nr, arch, a, exit_=0, success="yes",
                       comm="qux-helper", exe=EXES[3])
+
+    # The constructs the fuzzer found and the corpus did not hold: a
+    # leading NUL in an escaped value, a value that decodes to a single
+    # NUL, a data= field outside a TTY record, a data= that is not hex,
+    # a seccomp code outside the table, and a protection word that is
+    # PROT_SEM alone.  Each one is here so that make test alone would
+    # have caught the defect, without waiting for a seed to find it.
+    for v in ["009010852B", "00", "0041004243", "4100", "41424300",
+              "0090414243"]:
+        g.count("edge-nul")
+        g.lines.append('type=PATH msg=audit(%s): item=0 path=%s '
+                       'nametype=NORMAL' % (g.tick(), v))
+        g.count("records")
+    for typ, v in [("TTY", "6C73202D6C0D"), ("BPF", "6C73202D6C0D"),
+                   ("USER_CMD", "6C7"), ("PATH", "ls"), ("TTY", "(null)"),
+                   ("TTY", "6G73"), ("BPF", '"ls -l"')]:
+        g.count("edge-data")
+        g.lines.append("type=%s msg=audit(%s): pid=7 data=%s"
+                       % (typ, g.tick(), v))
+        g.count("records")
+    for code in ["0", "7ffc0000", "ac052d01", "345cff8", "30000"]:
+        g.count("edge-seccomp-code")
+        g.lines.append('type=SECCOMP msg=audit(%s): auid=0 uid=0 gid=0 '
+                       'ses=1 subj=%s pid=9 comm="widgetd" exe="%s" '
+                       'sig=0 arch=c000003e syscall=1 compat=0 ip=0x7f00 '
+                       'code=0x%s' % (g.tick(), CTX[0], EXES[0], code))
+        g.count("records")
 
     for nr in (55, 221):
         g.count("fcntl-i386")

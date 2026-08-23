@@ -30,6 +30,20 @@ import (
 //	Text runs are quoted.  A double quote becomes \" and a backslash
 //	\\; every byte outside 0x20..0x7e becomes a three-digit octal
 //	escape, NUL included, so "hi\000there" is one run and not three.
+//
+// ttyBytes decodes a hex data= value the way the keystroke renderer
+// does, which is not the way every other hex field is decoded: a
+// trailing odd nibble is DROPPED here and kept as the high half of a
+// last byte everywhere else.  data=6C7 is one keystroke to ausearch and
+// two bytes to its own general decoder.
+func ttyBytes(f *Field) []byte {
+	out := make([]byte, len(f.Raw)/2)
+	for i := range out {
+		out[i] = hexval(f.Raw[2*i])<<4 | hexval(f.Raw[2*i+1])
+	}
+	return out
+}
+
 func ttyText(b []byte) string {
 	var parts []string
 	var text strings.Builder

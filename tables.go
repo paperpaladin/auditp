@@ -1401,7 +1401,7 @@ var filterListName = map[int]string{
 	7: "io_uring",
 }
 
-// Open flags, one bit at a time from asm-generic/fcntl.h against ausearch: 17 of 17 agreed.  The header writes them in octal with a leading zero and reading those as decimal gives a table that is wrong for every flag above O_RDWR.
+// Open flags, one bit at a time from asm-generic/fcntl.h against ausearch: 17 of 18 agreed.  The header writes them in octal with a leading zero and reading those as decimal gives a table that is wrong for every flag above O_RDWR.
 var openFlagName = map[int]string{
 	1:       "O_WRONLY",
 	2:       "O_RDWR",
@@ -1412,6 +1412,7 @@ var openFlagName = map[int]string{
 	1024:    "O_APPEND",
 	2048:    "O_NONBLOCK",
 	4096:    "O_DSYNC",
+	8192:    "O_ASYNC",
 	16384:   "O_DIRECT",
 	65536:   "O_DIRECTORY",
 	131072:  "O_NOFOLLOW",

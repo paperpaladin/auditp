@@ -62,6 +62,22 @@ def main():
     ap.add_argument("--known", help="file of fields where ausearch's own "
                     "output is ambiguous; counted apart from WRONG and "
                     "required by the suite to be exactly this set")
+    ap.add_argument("--known-may-be-unmet", action="store_true",
+                    help="do not fail on an entry in the known file that "
+                         "did not fire.  For the fuzzer, whose input "
+                         "changes with the seed: a stale exemption is "
+                         "still a failure for the fixed corpus, which is "
+                         "where that check belongs.")
+    ap.add_argument("--oracle-declines", action="store_true",
+                    help="count a record the oracle read NOTHING of as "
+                         "declined rather than as missing fields.  For "
+                         "the fuzzer, where a type and field list drawn "
+                         "at random is often something ausearch will not "
+                         "parse at all: an AVC with no avc: prose in "
+                         "front of it is refused outright.  A field "
+                         "missing from a record ausearch DID read is "
+                         "still a failure, which is the distinction "
+                         "worth keeping.")
     ap.add_argument("--no-refusals", action="store_true",
                     help="treat a refusal as a failure.  Used for the "
                          "uninterpreted comparison, where there is nothing "
@@ -89,6 +105,13 @@ def main():
     # of the corpus moved the serials, so a recorded difference silently
     # became a failure and a new one silently became exempt.
 
+    declined = set()
+    if args.oracle_declines:
+        orc_recs = {(k[0], k[1]) for k in orc}
+        for k in oorder:
+            if (k[0], k[1]) not in orc_recs:
+                declined.add((k[0], k[1]))
+
     agree_i = agree_p = refused = wrong = ambiguous = 0
     seen_known = set()
     missing_ours = missing_orc = 0
@@ -98,6 +121,8 @@ def main():
     names = set()
 
     for k in oorder:
+        if (k[0], k[1]) in declined:
+            continue
         flag, val = ours[k]
         names.add(k[2])
         if k not in orc:
@@ -111,9 +136,14 @@ def main():
                 agree_i += 1
             else:
                 agree_p += 1
-        elif (k[2], val, oval) in known:
+        elif (k[2].split("#")[0], val, oval) in known:
+            # The name without its occurrence suffix.  A field that
+            # appears twice in one record is disambiguated as sig#2,
+            # and an exemption recorded for sig did not cover it, so
+            # the same known ausearch defect counted as a new failure
+            # the moment the fuzzer wrote two signals in one record.
             ambiguous += 1
-            seen_known.add((k[2], val, oval))
+            seen_known.add((k[2].split("#")[0], val, oval))
         elif flag == "i":
             wrong += 1
             by_wrong[k[2]] += 1
@@ -141,6 +171,7 @@ def main():
     print("AMBIGUOUS-unmet %d" % len(known - seen_known))
     print("MISSING-ours    %d" % missing_ours)
     print("MISSING-oracle  %d" % missing_orc)
+    print("ORACLE-DECLINED %d" % len(declined))
     if by_refused:
         print("refused by field name:")
         for n, c in by_refused.most_common():
@@ -163,7 +194,8 @@ def main():
     # An entry in the known-ambiguous file that did not fire is a stale
     # exemption, and a stale exemption is how a real failure gets excused
     # later.  It fails too.
-    bad += len(known - seen_known)
+    if not args.known_may_be_unmet:
+        bad += len(known - seen_known)
     if total == 0:
         print("NOTHING COMPARED")
         return 1
