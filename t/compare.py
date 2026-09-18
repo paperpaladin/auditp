@@ -27,6 +27,8 @@ import sys
 def load(path, flagged):
     rows = {}
     order = []
+    cur = None
+    typ = None
     with open(path, "r", errors="surrogateescape") as f:
         for line in f:
             line = line.rstrip("\n")
@@ -41,14 +43,33 @@ def load(path, flagged):
                     continue
                 key, idx, name, flag = parts[0], parts[1], parts[2], "-"
                 val = "\t".join(parts[3:])
-            k = (key, idx, name)
+            # A record is identified by its event key, its position in
+            # the event AND its type.  Two events can share a key,
+            # because a record of certain types ends an event, and
+            # ausearch sorts a whole file's events by time, so two
+            # same-key events swap places in a file of nine hundred
+            # records and keep their order in a file of two.  Keying on
+            # position alone made the comparison depend on that sort: a
+            # UNKNOWN[1100] and a BPF record at position 0 of two
+            # same-key events were paired with each other and reported
+            # as six differing fields.
+            if (key, idx) != cur:
+                cur = (key, idx)
+                typ = None
+            if name == "@type":
+                typ = val
+                n = 2
+                while (key, idx, typ, "@type") in rows:
+                    typ = "%s#%d" % (val, n)
+                    n += 1
+            k = (key, idx, typ, name)
             if k in rows:
                 # A repeated field name in one record: disambiguate by
                 # occurrence so the two sides still line up.
                 n = 2
-                while (key, idx, "%s#%d" % (name, n)) in rows:
+                while (key, idx, typ, "%s#%d" % (name, n)) in rows:
                     n += 1
-                k = (key, idx, "%s#%d" % (name, n))
+                k = (key, idx, typ, "%s#%d" % (name, n))
             rows[k] = (flag, val)
             order.append(k)
     return rows, order
@@ -124,7 +145,7 @@ def main():
         if (k[0], k[1]) in declined:
             continue
         flag, val = ours[k]
-        names.add(k[2])
+        names.add(k[3])
         if k not in orc:
             missing_orc += 1
             if len(examples) < args.show:
@@ -136,22 +157,22 @@ def main():
                 agree_i += 1
             else:
                 agree_p += 1
-        elif (k[2].split("#")[0], val, oval) in known:
+        elif (k[3].split("#")[0], val, oval) in known:
             # The name without its occurrence suffix.  A field that
             # appears twice in one record is disambiguated as sig#2,
             # and an exemption recorded for sig did not cover it, so
             # the same known ausearch defect counted as a new failure
             # the moment the fuzzer wrote two signals in one record.
             ambiguous += 1
-            seen_known.add((k[2].split("#")[0], val, oval))
+            seen_known.add((k[3].split("#")[0], val, oval))
         elif flag == "i":
             wrong += 1
-            by_wrong[k[2]] += 1
+            by_wrong[k[3]] += 1
             if len(examples) < args.show:
                 examples.append(("WRONG", k, val, oval))
         else:
             refused += 1
-            by_refused[k[2]] += 1
+            by_refused[k[3]] += 1
             if args.no_refusals and len(examples) < args.show:
                 examples.append(("REFUSED", k, val, oval))
 
@@ -185,7 +206,7 @@ def main():
     # REFUSED count and a harness extractor picked up thirteen hundred
     # lines where it wanted one number.
     for kind, k, a, b in examples:
-        print("eg %-12s %s %s %s" % (kind, k[0], k[1], k[2]))
+        print("eg %-12s %s %s %s %s" % (kind, k[0], k[1], k[2], k[3]))
         print("eg   ours   %r" % (a,))
         print("eg   oracle %r" % (b,))
     bad = wrong + missing_ours + missing_orc

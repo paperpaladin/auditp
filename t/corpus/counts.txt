@@ -1,4 +1,4 @@
-lines 1138
+lines 1152
 truth-rows 1645
 anom-abend 16
 avc 12
@@ -43,11 +43,12 @@ proctitle 125
 prose-prefix 13
 ptrace-req 9
 quoted 1554
-records 1138
+records 1152
 seccomp 89
 sockaddr 5
 socket-family 20
 socketcall 9
+split-event 7
 syscall-i386 24
 syscall-records 502
 syscall-x86_64 65

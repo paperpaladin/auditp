@@ -174,3 +174,9 @@ seccomp-unknown-masked@@@interp.go@@@	return fmt.Sprintf("unknown-seccomp-code(0
 seccomp-unknown-padded@@@interp.go@@@	return fmt.Sprintf("unknown-seccomp-code(0x%x)", n)@@@	return fmt.Sprintf("unknown-seccomp-code(0x%08x)", n)
 oflag-accmode-enum@@@interp.go@@@	if !accmode || n&3 == 0 {@@@	if !accmode || n&3 == 0 || n&3 == 3 {
 proctitle-leading-nul-becomes-space@@@interp.go@@@	if len(b) > 1 && b[0] == 0 {\n		b = b[1:]\n	}\n	c := make([]byte, len(b))@@@	c := make([]byte, len(b))
+# --- event assembly ---
+event-never-closed@@@read.go@@@		if endsEvent(r.TypeNum) {\n			ev.Closed = true\n		}@@@		if false {\n			ev.Closed = true\n		}
+event-closed-by-everything@@@read.go@@@		if endsEvent(r.TypeNum) {@@@		if true {
+event-end-range-off-by-one@@@parse.go@@@		if typeNum >= r[0] && typeNum <= r[1] {@@@		if typeNum > r[0] && typeNum <= r[1] {
+typenum-not-resolved@@@parse.go@@@	r.TypeNum = typeNumber(r.Type)@@@	r.TypeNum = -1
+typenum-unknown-spelling-ignored@@@parse.go@@@	if inner, ok := strings.CutPrefix(typ, "UNKNOWN["); ok {@@@	if inner, ok := strings.CutPrefix(typ, "NOSUCHPREFIX["); ok {

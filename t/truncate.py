@@ -63,12 +63,16 @@ def ours(auditp, path, strict=False):
     if strict:
         cmd.insert(1, "-strict")
     p = subprocess.run(cmd, capture_output=True)
-    keys = set()
+    # One @type row per record.  Counting distinct (key, index) pairs
+    # was wrong once ausearch's event-termination rule went in: two
+    # events can share a key, both numbering their records from zero,
+    # so the pairs collapse and a two-record file reports one.
+    n = 0
     for line in p.stdout.split(b"\n"):
         f = line.split(b"\t")
-        if len(f) >= 3:
-            keys.add((f[0], f[1]))
-    return p.returncode, len(keys)
+        if len(f) >= 3 and f[2] == b"@type":
+            n += 1
+    return p.returncode, n
 
 
 def theirs(path):

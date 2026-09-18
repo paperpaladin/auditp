@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 // Encoding is how the kernel wrote a field's value.  The audit format has
@@ -158,6 +160,48 @@ func (r *Record) Key() string {
 
 var errNotRecord = errors.New("not an audit record")
 
+// typeNumberOf is auditTypeName the other way round, built once.  It is
+// what turns a type name back into the number the grouping rule and the
+// JSON form both need; TypeNum was -1 on every record until now and the
+// JSON said so.
+var typeNumberOf = func() map[string]int {
+	m := make(map[string]int, len(auditTypeName))
+	for n, name := range auditTypeName {
+		if _, dup := m[name]; !dup {
+			m[name] = n
+		}
+	}
+	return m
+}()
+
+// typeNumber resolves "SYSCALL" to 1300 and the UNKNOWN[1100] spelling
+// auditd writes for a type its own table does not name to 1100.
+func typeNumber(typ string) int {
+	if n, ok := typeNumberOf[typ]; ok {
+		return n
+	}
+	if inner, ok := strings.CutPrefix(typ, "UNKNOWN["); ok {
+		if inner, ok := strings.CutSuffix(inner, "]"); ok {
+			if n, err := strconv.Atoi(inner); err == nil {
+				return n
+			}
+		}
+	}
+	return -1
+}
+
+// endsEvent reports whether a record of this type closes the event it
+// is in, so that the next record with the same key starts a new one.
+// See eventEndRange in tables.go for how the set was measured.
+func endsEvent(typeNum int) bool {
+	for _, r := range eventEndRange {
+		if typeNum >= r[0] && typeNum <= r[1] {
+			return true
+		}
+	}
+	return false
+}
+
 func isNameByte(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' ||
 		c >= '0' && c <= '9' || c == '_' || c == '-'
@@ -300,6 +344,7 @@ func ParseLine(line []byte, lineno int) (*Record, error) {
 		return nil, errNotRecord
 	}
 	r.Type = string(b[:j])
+	r.TypeNum = typeNumber(r.Type)
 	b = b[j+1:]
 	if !bytes.HasPrefix(b, []byte("msg=audit(")) {
 		return nil, errNotRecord

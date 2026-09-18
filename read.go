@@ -94,6 +94,7 @@ func (s *Stats) recordFields(r *Record) {
 type Event struct {
 	Key     string
 	Records []*Record
+	Closed  bool // a record whose type ends an event has arrived
 }
 
 // Read parses a whole log.  Events come out in order of first appearance of
@@ -141,6 +142,15 @@ func Read(rd io.Reader, st *Stats, strict bool) ([]*Event, error) {
 		st.record(r)
 		k := r.Key()
 		ev := index[k]
+		// A closed event is not added to.  ausearch ends an event
+		// after a record of certain types and starts a new one for
+		// the next record with the same key, so a PROCTITLE followed
+		// by anything is two events and auditp used to make it one.
+		// Grouping by the key alone is the obvious rule and it is not
+		// ausearch's.
+		if ev != nil && ev.Closed {
+			ev = nil
+		}
 		if ev == nil {
 			ev = &Event{Key: k}
 			index[k] = ev
@@ -148,6 +158,9 @@ func Read(rd io.Reader, st *Stats, strict bool) ([]*Event, error) {
 			st.Events++
 		}
 		ev.Records = append(ev.Records, r)
+		if endsEvent(r.TypeNum) {
+			ev.Closed = true
+		}
 	}
 	return events, nil
 }

@@ -1029,6 +1029,79 @@ def arg_flag_table(label, arch, nr, idx, hdr, unknown, minbit=1):
     return out, agree
 
 
+# ------------------------------------------------- event termination
+# ausearch does not group purely by (node, timestamp, serial).  Certain
+# record types END an event: a record of that type closes the one it is
+# in, and the next record with the same key starts a new one.  It is
+# what makes a PROCTITLE the last line of a syscall event and a
+# CRED_ACQ a record of its own, and auditp grouped by the key alone and
+# so joined events ausearch keeps apart.
+#
+# The set is measured, one type number at a time, by putting a record
+# of that type in front of a BPF record with the same key and counting
+# the event blocks that come back.  Two blocks means the type ends an
+# event.  There is no header that says this and no rule to derive it
+# from: 1007 to 1299 end an event, 1300 to 1326 do not, 1327 does, and
+# nothing about those numbers predicts it.
+def event_end_types(lo=1000, hi=3300):
+    recs = []
+    for n in range(lo, hi):
+        recs.append(("UNKNOWN[%d]" % n, "pid=1"))
+        recs.append(("BPF", "pid=2"))
+    got = probe_blocks(recs)
+    ends = []
+    declined = []
+    for i, n in enumerate(range(lo, hi)):
+        k = got.get(2 * i, 0)
+        if k == 0:
+            declined.append(n)
+        elif k == 2:
+            ends.append(n)
+    ranges = []
+    for n in ends:
+        if ranges and ranges[-1][1] == n - 1:
+            ranges[-1][1] = n
+        else:
+            ranges.append([n, n])
+    if declined:
+        problems.append("COUNT %d record types are declined outright by "
+                        "ausearch when paired, so whether they end an "
+                        "event was not measured: %s"
+                        % (len(declined), ",".join(map(str, declined))))
+    return [tuple(x) for x in ranges], len(ends)
+
+
+def probe_blocks(records):
+    """Like probe, but reports how many EVENT BLOCKS each record's
+    serial appeared in rather than what was printed."""
+    import tempfile
+    out = {}
+    env = dict(os.environ)
+    env["TZ"] = "UTC"
+    env["LC_ALL"] = "C"
+    for lo in range(0, len(records), PROBE_CHUNK):
+        lines = []
+        for i in range(lo, min(lo + PROBE_CHUNK, len(records))):
+            t, body = records[i]
+            # Two records per serial: 2k and 2k+1 share one.
+            lines.append("type=%s msg=audit(1700000000.%03d:%d): %s"
+                         % (t, (i // 2) % 1000, 9000000 + (i // 2) * 2, body))
+        fd, path = tempfile.mkstemp(prefix="auditp-blocks-")
+        try:
+            os.write(fd, ("\n".join(lines) + "\n").encode())
+            os.close(fd)
+            p = subprocess.run([AUSEARCH, "-if", path],
+                               capture_output=True, env=env)
+        finally:
+            os.unlink(path)
+        text = p.stdout.decode("utf-8", "replace")
+        for block in text.split("----"):
+            for ser in set(int(m) for m in
+                           re.findall(r":(\d+)\)", block)):
+                out[ser - 9000000] = out.get(ser - 9000000, 0) + 1
+    return out
+
+
 def go_map_str_str(name, m, comment):
     out = ["// %s" % comment, "var %s = map[string]string{" % name]
     for k in sorted(m):
@@ -1357,6 +1430,7 @@ def main():
     flists, agfl = filterlists()
     oflags, agof = openflags()
     mflags, agmf = mapflags()
+    ends, nends = event_end_types()
     ttycc, agtc = tty_controls()
     ttyesc, agte = tty_escapes()
     args64, nargs64 = syscall_args(ARCH_X8664, sc64)
@@ -1493,6 +1567,14 @@ package main
                                     "%s.  %d of %d agreed with the "
                                     "independent source."
                                     % (comment, ag, len(tbl))))
+    parts.append("""// Record types that END an event.  A record of one of these closes
+// the event it is in, and the next record with the same (node,
+// timestamp, serial) starts a new one.  ausearch does that and nothing
+// says why: 1007 to 1299 end an event, 1300 to 1326 do not, 1327 does.
+// Probed one type number at a time, %d of them, by putting the type in
+// front of a BPF record with the same key and counting the blocks.
+var eventEndRange = [][2]int{
+%s}""" % (nends, "".join("\t{%d, %d},\n" % r for r in ends)))
     parts.append(go_map_int_str(
         "ttyControlName", ttycc,
         "Single bytes a TTY record's data= field renders as a named "
@@ -1553,6 +1635,8 @@ package main
     rep.write("open-flag-two-source-agree %d\n" % agof)
     rep.write("map-flag %d\n" % len(mflags))
     rep.write("map-flag-two-source-agree %d\n" % agmf)
+    rep.write("event-end-types %d\n" % nends)
+    rep.write("event-end-ranges %d\n" % len(ends))
     rep.write("tty-control %d\n" % len(ttycc))
     rep.write("tty-escape %d\n" % len(ttyesc))
     rep.write("arg-pairs-x86_64 %d\n" % nargs64)

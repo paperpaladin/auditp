@@ -459,6 +459,26 @@ def build(g):
                        'code=0x%s' % (g.tick(), CTX[0], EXES[0], code))
         g.count("records")
 
+    # Events where a record that ENDS an event is followed by another
+    # record with the same key, which ausearch reads as two events and
+    # a reader grouping by the key alone reads as one.  PROCTITLE ends
+    # one; PATH does not.
+    # UNKNOWN[1100] is in the list too, because the rule is keyed on
+    # the type NUMBER and that spelling is the only place the number
+    # has to be recovered from the name auditd wrote.
+    for first, second in (("PROCTITLE", "BPF"), ("CRED_ACQ", "BPF"),
+                          ("PATH", "PROCTITLE"), ("BPF", "PROCTITLE"),
+                          ("USER_AUTH", "CRED_ACQ"),
+                          ("UNKNOWN[1100]", "BPF"),
+                          ("UNKNOWN[2300]", "PATH")):
+        key = g.tick()
+        g.count("split-event")
+        g.lines.append('type=%s msg=audit(%s): pid=7 comm="widgetd"'
+                       % (first, key))
+        g.lines.append('type=%s msg=audit(%s): pid=8 comm="bargen"'
+                       % (second, key))
+        g.count("records", 2)
+
     for nr in (55, 221):
         g.count("fcntl-i386")
         syscall_event(g, nr, ARCH32, ["3", "8", "c", "0"],

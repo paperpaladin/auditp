@@ -23,6 +23,8 @@ open-flag 18
 open-flag-two-source-agree 17
 map-flag 17
 map-flag-two-source-agree 17
+event-end-types 1509
+event-end-ranges 5
 tty-control 28
 tty-escape 143
 arg-pairs-x86_64 98
@@ -64,7 +66,7 @@ ipcCall-two-source-agree 12
 socketCallMux 20
 socketCallMux-two-source-agree 20
 problems 0
-notes 54
+notes 55
   ALIAS arch 40000028: header computes arm, ausearch says armeb
   ALIAS audit filter list 6: header says fs, ausearch says filesystem
   ALIAS audit filter list 7: header says uring_exit, ausearch says io_uring
@@ -86,6 +88,7 @@ notes 54
   ALIAS x86_64 syscall 17: ausyscall says pread, header says pread64
   ALIAS x86_64 syscall 18: ausyscall says pwrite, header says pwrite64
   COUNT 42 of 53 AUDIT_ARCH_* values are unknown to ausearch and render as unknown-elf-type(hex)
+  COUNT 9 record types are declined outright by ausearch when paired, so whether they end an event was not measured: 1300,1336,1400,1800,1801,1802,1803,1804,1805
   DIVERGE signal 30: ausearch says IGPWR, both sources say SIGPWR, auditp follows the sources
   ONESIDED clone flag bit 0x1000 (CLONE_PIDFD) has no name in ausearch
   ONESIDED ipc call 25 (dipc) is named by ausearch and not by the header

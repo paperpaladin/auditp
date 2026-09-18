@@ -442,6 +442,29 @@ else
 	no "auditp reads $underref lines ausearch refuses, at lines:$underlist"
 fi
 
+# --- 9a. event assembly, as a sequence and not as a count -------------
+# The per-field comparison aligns on (event key, record index), so it
+# notices a record that moved, but it reports it as a field that went
+# missing.  This asks the question directly: for every event, is the
+# SEQUENCE of record types auditp assembles the sequence ausearch
+# assembles, in order and with the same multiplicity.  Two events can
+# share a key, since a record of certain types ends an event, so the
+# comparison is over the list of (key, index, type) triples.
+"$AUDITP" -o flat -i "$CORPUS" | awk -F'\t' '$3=="@type"{print $1"\t"$2"\t"$5}' \
+	| sort > "$T/seq.ours"
+python3 t/oracle.py --interpret "$CORPUS" 2>/dev/null \
+	| awk -F'\t' '$3=="@type"{print $1"\t"$2"\t"$4}' | sort > "$T/seq.orc"
+nseq=$(wc -l < "$T/seq.ours")
+if cmp -s "$T/seq.ours" "$T/seq.orc"; then
+	ok "event assembly: $nseq (event, position, type) triples identical to ausearch"
+else
+	no "event assembly differs: $(diff "$T/seq.ours" "$T/seq.orc" | grep -c '^[<>]') lines"
+	diff "$T/seq.ours" "$T/seq.orc" | head -6
+fi
+floor "record positions compared" 900 "$nseq"
+nmulti=$("$AUDITP" -o flat -i "$CORPUS" | awk -F'\t' '$3=="@type" && $2>0' | wc -l)
+floor "records at a non-zero position in their event" 150 "$nmulti"
+
 # --- 9b. the packed sockaddr ------------------------------------------
 # The corpus holds five SOCKADDR records and libaudit renders far more
 # shapes than that.  t/saddr.py builds 89, one per address family plus

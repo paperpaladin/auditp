@@ -2037,6 +2037,20 @@ var cloneFlagName = map[int]string{
 	2147483648: "CLONE_IO",
 }
 
+// Record types that END an event.  A record of one of these closes
+// the event it is in, and the next record with the same (node,
+// timestamp, serial) starts a new one.  ausearch does that and nothing
+// says why: 1007 to 1299 end an event, 1300 to 1326 do not, 1327 does.
+// Probed one type number at a time, 1509 of them, by putting the type in
+// front of a BPF record with the same key and counting the blocks.
+var eventEndRange = [][2]int{
+	{1007, 1299},
+	{1327, 1327},
+	{1406, 1419},
+	{2000, 2000},
+	{2100, 3299},
+}
+
 // Single bytes a TTY record's data= field renders as a named key rather than as text: 28 of the 256, probed one at a time.  0x1c to 0x1f are NOT in it, which reading a terminal manual would not tell you: libaudit prints those as octal inside the quoted text.
 var ttyControlName = map[int]string{
 	1:   "<^A>",
