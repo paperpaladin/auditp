@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
+	"unicode/utf8"
 )
 
 func writeUnparse(w io.Writer, events []*Event) {
@@ -63,6 +65,18 @@ type jsonRecord struct {
 	Prefix string            `json:"prefix,omitempty"`
 	Fields map[string]string `json:"fields"`
 	Order  []string          `json:"order"`
+
+	// Any field whose value is not valid UTF-8, hex encoded, under the same
+	// name. encoding/json substitutes U+FFFD for an invalid byte rather than
+	// refusing, so the value in Fields above is lossy for exactly these and
+	// nothing in the JSON says so. A path on Linux is a byte string with no
+	// encoding guarantee, and a name that is not valid UTF-8 is a thing an
+	// attacker picks deliberately, so losing those bytes quietly is the
+	// wrong failure for this program to have.
+	//
+	// Both forms are emitted rather than only the hex, so a reader that does
+	// not care keeps working unchanged.
+	FieldsHex map[string]string `json:"fields_hex,omitempty"`
 }
 
 type jsonEvent struct {
@@ -84,11 +98,25 @@ func writeJSON(w io.Writer, events []*Event, ip *Interp) {
 		}
 		for _, r := range ev.Records {
 			jr := jsonRecord{
-				Type:   ip.TypeName(r),
-				Num:    r.TypeNum,
+				Type: ip.TypeName(r),
+				// Omitted rather than emitted as -1 when the number is not
+				// known. A record can name its own type in the text, which
+				// is how LANDLOCK_ACCESS and LANDLOCK_DOMAIN arrive, and
+				// this libaudit has no number for either. -1 is not a type
+				// number, and a consumer reading type_num would have to
+				// special-case it. The field is omitempty and no audit type
+				// is 0, so absence is unambiguous.
+				Num: knownTypeNum(r.TypeNum),
 				Line:   r.Line,
 				Prefix: trimSpace(r.Prefix),
 				Fields: map[string]string{},
+				// Both initialised, and that is the point. A nil map and a
+				// nil slice marshal differently: the map was already made
+				// here and came out as {}, while Order was left nil and came
+				// out as null. One record in the corpus has no fields at
+				// all, a USER_AVC, and it published "order": null to
+				// anything reading the JSON.
+				Order: []string{},
 			}
 			for i := range r.Fields {
 				f := &r.Fields[i]
@@ -101,12 +129,12 @@ func writeJSON(w io.Writer, events []*Event, ip *Interp) {
 					}
 					name = fmt.Sprintf("%s#%d", f.Name, k)
 				}
-				jr.Fields[name] = ip.Field(r, f)
+				jr.setField(name, ip.Field(r, f))
 				jr.Order = append(jr.Order, name)
 				for j := range f.Sub {
 					g := &f.Sub[j]
 					sub := f.Name + "." + g.Name
-					jr.Fields[sub] = ip.Field(r, g)
+					jr.setField(sub, ip.Field(r, g))
 					jr.Order = append(jr.Order, sub)
 				}
 			}
@@ -254,5 +282,26 @@ func dump(w io.Writer, tag string, m map[string]int) {
 	})
 	for _, k := range keys {
 		fmt.Fprintf(w, "%s %s %d\n", tag, k, m[k])
+	}
+}
+
+// knownTypeNum turns an unknown type number into the zero value, so the
+// omitempty tag drops the field instead of publishing a negative one.
+func knownTypeNum(n int) int {
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+// setField records a value, and records it again in hex when it is not
+// valid UTF-8. See the comment on FieldsHex.
+func (jr *jsonRecord) setField(name, val string) {
+	jr.Fields[name] = val
+	if !utf8.ValidString(val) {
+		if jr.FieldsHex == nil {
+			jr.FieldsHex = map[string]string{}
+		}
+		jr.FieldsHex[name] = hex.EncodeToString([]byte(val))
 	}
 }

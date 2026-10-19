@@ -345,6 +345,19 @@ def audit_types(lo=1000, hi=3100):
                     # spellings for a few.  Recorded, not hidden.
                     problems.append("NOTE type %d: audit.h says AUDIT_%s, "
                                     "ausearch says %s" % (num, name, out[num]))
+        # And fill in from the header where ausearch answered nothing.
+        # It declines a record of some type numbers outright, SYSCALL
+        # at 1300 among them, so a table built from its answers alone
+        # has no name for the commonest record type in any log and
+        # every SYSCALL record carried type_num -1 in the JSON.
+        filled = 0
+        for num, name in sorted(kern.items()):
+            if num not in out:
+                out[num] = name
+                filled += 1
+        problems.append("COUNT %d record type numbers come from audit.h "
+                        "alone, because ausearch declines a record of "
+                        "that type and so never names it" % filled)
         out["_crosschecked"] = (both, agree)
     return out
 

@@ -576,6 +576,28 @@ fl=$(tr_ flip-looser)
 if [ "${fl:-99999}" -le 170 ]; then ok "corrupt lines auditp reads and ausearch refuses: $fl (ceiling 170)"
 else no "auditp now reads $fl corrupt lines ausearch refuses, ceiling is 170"; fi
 
+# ------------------------------------------------------------------ JSON form
+# Nothing else here reads -o json. It is the form a pipeline consumes, and a
+# comma in the wrong place or a field dropped from the map would not have
+# turned anything red. This reads it back with Python and compares it with
+# the flat output of the same run, field by field.
+#
+# Run both plain and interpreted, because -i changes the values rather than
+# the structure and only one of the two was ever going to be exercised by
+# accident.
+echo "--- the JSON form, read back"
+for mode in plain interpret; do
+	if [ "$mode" = interpret ]; then set -- --interpret; else set --; fi
+	jout=$(python3 "t/jsoncheck.py" --auditp ./auditp --log "$CORPUS" "$@" 2>&1)
+	jrc=$?
+	echo "$jout" | sed 's/^/    /'
+	if [ "$jrc" -eq 0 ]; then
+		ok "the JSON form agrees with the flat form ($mode)"
+	else
+		no "the JSON form disagrees with the flat form ($mode)"
+	fi
+done
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

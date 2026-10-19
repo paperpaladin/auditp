@@ -2,7 +2,7 @@ syscall-x86_64 374
 syscall-x86_64-two-source-agree 372
 syscall-i386 452
 syscall-i386-two-source-agree 450
-audit-types 193
+audit-types 219
 audit-types-in-kernel-header 73
 audit-types-two-source-agree 73
 arch 11
@@ -66,7 +66,7 @@ ipcCall-two-source-agree 12
 socketCallMux 20
 socketCallMux-two-source-agree 20
 problems 0
-notes 55
+notes 56
   ALIAS arch 40000028: header computes arm, ausearch says armeb
   ALIAS audit filter list 6: header says fs, ausearch says filesystem
   ALIAS audit filter list 7: header says uring_exit, ausearch says io_uring
@@ -87,6 +87,7 @@ notes 55
   ALIAS socket type 6: source says SOCK_6, ausearch says SOCK_DCCP
   ALIAS x86_64 syscall 17: ausyscall says pread, header says pread64
   ALIAS x86_64 syscall 18: ausyscall says pwrite, header says pwrite64
+  COUNT 26 record type numbers come from audit.h alone, because ausearch declines a record of that type and so never names it
   COUNT 42 of 53 AUDIT_ARCH_* values are unknown to ausearch and render as unknown-elf-type(hex)
   COUNT 9 record types are declined outright by ausearch when paired, so whether they end an event was not measured: 1300,1336,1400,1800,1801,1802,1803,1804,1805
   DIVERGE signal 30: ausearch says IGPWR, both sources say SIGPWR, auditp follows the sources
