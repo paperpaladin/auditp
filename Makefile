@@ -14,7 +14,10 @@ test: all
 
 # Every deliberate defect in t/mutants.txt, built in a scratch directory
 # and run against the whole suite.  Not part of make test: it builds the
-# program 47 times and takes about a minute.
+# program once per entry and takes about an hour at 118 of them.  The
+# count in a comment here went stale the moment the table grew, so
+# t/run.sh asks t/patch.py --check instead, which counts the table it
+# reads and says whether every pattern still applies.
 mutants: all
 	@t/mutate.sh
 

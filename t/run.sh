@@ -232,21 +232,13 @@ if [ -s "$T/orci.flat" ]; then
 	# A floor on the translations, because 0 wrong is also what a build
 	# with every interpreter deleted would report.
 	floor "fields translated and agreeing" 9000 "${ai:-0}"
-	# And a ceiling on the refusals, so the gap cannot quietly grow.
-	# A ceiling, so the gap cannot quietly grow, and a floor on the
-	# translations, because 0 wrong is also what a build with every
-	# interpreter deleted would report.
-	# A ceiling, not a target, and it is 0 now: every field in the
-	# corpus is either translated and identical or passed through and
-	# identical.  The refusal channel is still live and still tested,
-	# by the sockaddr probe, which refuses five families on purpose
-	# and asserts that it refuses exactly those five.  A ceiling of 0
-	# here with no such assertion anywhere would mean the suite had
-	# stopped being able to tell a refusal from a translation.
-	# A ceiling, and the floor beside it is the point: the corpus
-	# holds one record per unimplemented pair, so the refusal count
-	# is the size of the gap and not zero.  A refusal channel with
-	# nothing in it cannot be told from one that has stopped working.
+	# A ceiling on the refusals so the gap cannot quietly grow, and a
+	# floor beside it because the corpus holds one record per
+	# unimplemented pair: the refusal count is the size of the gap and
+	# not zero, and a refusal channel with nothing in it cannot be
+	# told from one that has stopped working.  Three versions of this
+	# comment had accumulated here, one of them saying the count was
+	# 0, which it has not been since the gap was enumerated.
 	if [ "${rf:-99999}" -le 45 ]; then ok "refusals: $rf (ceiling 45)"
 	else no "refusals grew to $rf, ceiling is 45"; fi
 	floor "fields refused, one per unimplemented pair" 30 "${rf:-0}"
@@ -588,7 +580,12 @@ else no "auditp now reads $fl corrupt lines ausearch refuses, ceiling is 170"; f
 echo "--- the JSON form, read back"
 for mode in plain interpret; do
 	if [ "$mode" = interpret ]; then set -- --interpret; else set --; fi
-	jout=$(python3 "t/jsoncheck.py" --auditp ./auditp --log "$CORPUS" "$@" 2>&1)
+	# $AUDITP, not ./auditp.  This was the one place in the suite that
+	# named the working-tree binary, so under the mutation harness the
+	# JSON check read the unmutated program and could not kill anything.
+	# Three mutants of the JSON-only code survive with ./auditp here and
+	# die with $AUDITP, which is how the pin was found.
+	jout=$(python3 "t/jsoncheck.py" --auditp "$AUDITP" --log "$CORPUS" "$@" 2>&1)
 	jrc=$?
 	echo "$jout" | sed 's/^/    /'
 	if [ "$jrc" -eq 0 ]; then
@@ -597,6 +594,22 @@ for mode in plain interpret; do
 		no "the JSON form disagrees with the flat form ($mode)"
 	fi
 done
+
+# --- 11. the mutation catalogue still describes these sources ----------
+# make mutants is minutes and so runs nowhere near a commit.  Nothing
+# asked between sweeps whether the 115 patterns still matched, and four
+# of them had gone dead under refactoring: one mis-escaped, two quoting
+# source that had been rewritten, one that had become ambiguous.  A dead
+# entry is neither killed nor surviving, so the sweep's own numbers
+# cannot show it.  This replays patch.py's unescaping and asks only
+# whether each pattern matches exactly once.  About a second.
+echo "--- the mutation catalogue applies"
+if cout=$(python3 t/patch.py --check 2>&1); then
+	ok "mutation catalogue: $(echo "$cout" | tail -1)"
+else
+	no "mutation catalogue has entries that no longer apply"
+	echo "$cout" | sed 's/^/    /'
+fi
 
 echo
 echo "$pass passed, $fail failed"

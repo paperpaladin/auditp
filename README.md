@@ -70,45 +70,62 @@ than assumed:
 
 ## Numbers
 
-Measured on 20 October 2026, auditd 4.0.2, kernel 7.2.11-200.fc44.x86_64,
-go 1.24.4. `make test` prints all of them.
+Measured on 2 November 2026, auditd 4.0.2, kernel 7.2.13-200.fc44.x86_64,
+go 1.24.4. `make test` prints all of them and takes about 15 seconds.
 
 | what | measured |
 |---|---|
-| assertions | 49 passed, 0 failed |
-| fields compared against `ausearch -i`, whole corpus | 14,655 over 119 distinct names |
-| of those, translated by auditp and identical | 10,409 |
-| of those, passed through by auditp and identical | 4,227 |
-| of those, refused by auditp where ausearch translated | 16 |
+| assertions | 93 passed, 0 failed |
+| fields compared against `ausearch -i`, whole corpus | 20,903 over 119 distinct names |
+| of those, translated by auditp and identical | 15,270 |
+| of those, passed through by auditp and identical | 5,588 |
+| of those, refused by auditp where ausearch translated | 42 |
 | of those, different | 0 |
 | of those, ausearch's output is ambiguous | 3 |
-| fields compared without `-i` | 14,655, 0 different, 0 missing on either side |
+| fields compared without `-i` | 20,903, 0 different, 0 missing on either side |
 | the interleaved corpus, without `-i` | 99 fields over 38 names |
-| `@time` compared again in a second timezone | 903 |
-| decoded values against the bytes the generator encoded | 1,212 of 1,212 |
-| `(type, field)` pairs that hex-decode, against ausearch | 82, identical |
-| pairs the hex-decode probe put to ausearch | 524 asked, 524 answered |
-| x86_64 syscall numbers agreed by two sources | 372 |
-| i386 syscall numbers agreed by two sources | 450 |
-| audit record types agreed by two sources | 73 |
-| errno names agreed by two sources | 128 |
-| signal names agreed by two sources | 30 |
-| arch constants agreed by two sources | 10 |
-| round trip: records written back out byte for byte | 903 of 903, and 9 of 9 |
-| mutants (`make mutants`, not part of `make test`) | 58 applied, 57 killed, 1 survived, 0 did not build |
+| event assembly: `(event, position, type)` triples | 1,152, identical to ausearch |
+| `@time` compared again in a second timezone | 1,152 |
+| decoded values against the bytes the generator encoded | 1,644 of 1,644 |
+| `(type, field)` pairs that hex-decode, against ausearch | 92, identical |
+| pairs the hex-decode probe put to ausearch | 538 asked, 538 answered |
+| `sockaddr` shapes put to both sides | 89, of which 84 identical and 5 refused |
+| TTY keystroke renderings put to both sides | 363 of 363 identical |
+| fuzzed fields, 3 seeds | 10,985 compared, 10,420 identical, 0 wrong |
+| truncated and corrupted inputs | 1,116 cases, 0 crashes, 0 misread |
+| malformed lines put to both parsers | 24, no over-refusal either way |
+| round trip: records written back out byte for byte | 1,152 of 1,152, and 9 of 9 |
+| mutants (`make mutants`, not part of `make test`) | 118 applied, 114 killed, 4 survived, 0 did not apply, 0 did not build |
+
+Sixteen tables are each built from two sources and compared every run:
+372 x86_64 and 450 i386 syscall numbers, 73 record types, 128 errno
+names, 30 signal names, 10 arch constants, 31 fcntl commands, 36 bpf
+commands, 39 ptrace requests, 28 mount and 20 message flags, 22 clone
+flags, 20 socketcall and 12 ipc call names, and the TTY tables probed out
+of ausearch, 28 control bytes and 143 key sequences.
 
 Refusals are counted apart from disagreements, in both directions, because
 they need different work. A disagreement is a bug. A refusal is a feature
-that is not written yet, and there are 16 of them left: 5 `saddr`, 1 TTY
-`data` and 10 `a0` to `a3` on syscalls whose argument auditp does not
-interpret. They are listed by name every run and the suite fails if the
-count passes 40.
+that is not written yet. 42 fields in the corpus are refused, all of them
+`a0`, `a1` or `a2` on one of the 18 `(argument, syscall)` pairs ausearch
+interprets and auditp has no kind for. The corpus holds a record for every
+one of those pairs and the suite requires the set of refused pairs to be
+exactly the set the census calls the gap: a pair the corpus never reaches
+is an untested refusal, and a refusal the gap does not list is a field
+auditp stopped interpreting without anyone noticing. Five more refusals
+are in the `sockaddr` probe rather than the corpus, three address families
+whose byte string ausearch octal-escapes.
 
 "Passed through and identical" is the third count and is the one to be
-careful with. 4,227 fields agree because neither tool translates them, and
+careful with. 5,588 fields agree because neither tool translates them, and
 that is not evidence that auditp got anything right. It is reported
 separately for exactly that reason, and the floor the suite asserts is on
 the translated count only.
+
+Every number above moved when the corpus grew on 21 October and the table
+here was not revisited, so for eleven days this section described a corpus
+of 903 records with 49 assertions over it. The mutation row was the worst
+of them and has its own paragraph below.
 
 ## Where auditp and ausearch disagree
 
@@ -135,8 +152,9 @@ round-trippable format and this is the record that proves it.
 
 ## What the corpus holds
 
-903 records in 629 events, 12,465 fields, 371 subfields inside nested
-`msg='...'` lists, 52 record types. Five files are committed under
+1,152 records in 874 events, 18,215 fields, 371 subfields inside nested
+`msg='...'` lists, 52 record types, 115 distinct field names. Five files
+are committed under
 `t/corpus/`: the log, the ground truth for every decoded value, a log of
 malformed lines, a log whose two events interleave, and the construct
 counts. `t/gen.py` writes all five from a fixed seed and the suite
@@ -166,27 +184,33 @@ above 0x7f is a construct no log on this machine happened to contain. And
 constructs can be written on demand: without privilege to load an audit
 rule, nothing here emits a PATH record at all.
 
-The counts below are `t/corpus/counts.txt`, written by the generator, and
-the suite asserts a floor on each one. A hex decoder over a corpus with
+The counts below are `t/corpus/counts.txt` as committed, in the
+generator's own order, and the suite asserts a floor on the ones with
+code behind them. A hex decoder over a corpus with
 no hex-encoded value passes and proves nothing, and so does an i386
 syscall table over a corpus with no i386 records.
 
 ```
-records 903          lines 903            truth-rows 1213
-bare 10541           quoted 1121          hex-encoded 100
-nested-msg 50        prose-prefix 13      node-prefix 2
-multi-record-events 125                   syscall-records 287
-syscall-x86_64 65    syscall-i386 24      seccomp 89
-path-items 89        path-mode 60         proctitle 125
-event-openat 60      openat-flags 36      errno-exit 26
-mmap-prot 40         socket-family 20     kill-signal 16
-anom-abend 16        avc 12               user-cmd 10
-sockaddr 5           execve 4             bpf 40
-pam-record 30        netfilter-cfg 6      config-change 4
-type-zoo 23          uid-value 8
-edge-text 12         edge-cap 7           edge-hexshape 7
-edge-proctitle 3     edge-node 2          edge-empty 2
-edge-duplicate 1     edge-no-fields 1
+lines 1152               truth-rows 1645          anom-abend 16
+avc 12                   bare 15512               bpf 40
+bpf-cmd 7                clone-flag 14            config-change 4
+edge-cap 7               edge-data 7              edge-duplicate 1
+edge-empty 2             edge-hexshape 7          edge-no-fields 1
+edge-node 2              edge-nul 6               edge-proctitle 3
+edge-seccomp-code 5      edge-text 12             epoll-op 5
+errno-exit 26            event-openat 60          execve 4
+fcntl-cmd 42             fcntl-i386 2             gap-record 32
+hex-encoded 99           ipc-call 9               kill-signal 16
+mmap-prot 40             mount-flag 10            msg-flag 60
+multi-record-events 125  nested-msg 50            netfilter-cfg 6
+node-prefix 2            openat-flags 44          pam-record 30
+path-items 91            path-mode 60             proctitle 125
+prose-prefix 13          ptrace-req 9             quoted 1554
+records 1152             seccomp 89               sockaddr 5
+socket-family 20         socketcall 9             split-event 7
+syscall-i386 24          syscall-records 502      syscall-x86_64 65
+type-zoo 23              uid-value 8              umount-flag 8
+user-cmd 10
 ```
 
 `type-zoo` is 23 record types that appear once or twice each, to put the
@@ -203,34 +227,110 @@ knows about, and that is the whole weakness of a written corpus.
 
 `make mutants` applies one deliberate defect at a time to the sources,
 rebuilds in a scratch directory, and runs the whole suite against the
-result. Nothing patches the working tree. Three outcomes are kept apart:
-KILLED, SURVIVED, and NOBUILD for a patch that did not apply or did not
-compile, which is not a result about the suite at all and would be the
-easiest number to inflate.
+result. Nothing patches the working tree. Four outcomes are kept apart:
+KILLED, SURVIVED, NOPATCH for an entry whose pattern is not in the file
+any more or now matches twice, and NOBUILD for a patch that applied and
+did not compile.
 
-58 mutants, 57 killed, 1 survived, 0 failed to build. Measured 20
-October 2026 against the suite as committed.
+**118 mutants, 114 killed, 4 survived, 0 did not apply, 0 did not
+build.** Measured 2 November 2026, every entry in `t/mutants.txt` run
+against the suite as committed, 31 minutes.
 
 They are spread over the lexer (the quoted and single-quoted encodings,
 the field-name rule, the value terminator, the prose prefix), the event
 key (dropping the node, the serial or the milliseconds from it, and
 merging a record only into the most recently seen event), the hex
 decoder (nibble order, the odd trailing nibble, the rule for which bare
-value is hex at all, each of the three escape cases), and every
+value is hex at all, each of the three escape cases), the packed
+`sockaddr`, the TTY keystroke renderer, the JSON writer, and every
 interpreter: syscall names and their arch dependence, uid and gid
 resolution, file modes, exit codes, capability masks, the seccomp mask,
 `res`, signals, netfilter families, mmap flags, open flags, the
 timestamp, the record type name, the nested `msg='...'` list, and each
-of the eighteen syscall argument kinds.
+of the syscall argument kinds.
 
-The survivor is equivalent and stays in the catalogue so that the claim
-can be checked. `field-name-needs-two-chars` starts the name scan one
-byte later; the caller has already established that the first byte is a
-letter, and a letter is a name byte, so the loop's first iteration could
-only have advanced past it. The two versions compute the same length for
-every input, one-character names included.
+### The number this section used to carry
 
-Two results the run produced that were worth more than the count.
+It said 58 mutants, 57 killed, 1 survived, dated 20 October. That was
+true of a table of 58 entries. The table reached 115 across ten commits
+the following day and nothing re-ran the sweep, so the published claim
+was about a catalogue that no longer existed, and the only honest trace
+left of where the figure came from was the sentence below saying one
+mutant "survived the first run of 58".
+
+Worse than the stale count, four of the 115 entries had gone dead. A
+mutation entry is a pattern to find and a replacement to put in its
+place; when the source around it is rewritten the pattern stops matching
+and the entry tests nothing at all. It is neither killed nor surviving,
+so no number in a sweep can show it. The four, and each for a different
+reason:
+
+- `hex-escape-in-hex` held a Go character literal for a backslash with
+  one level of escaping too few. `t/patch.py` unescapes `\\` to a single
+  backslash, so the pattern it looked for was `'\'` where the source has
+  `'\\'`. The file's own docstring documents this trap, having been
+  rewritten once already for the same reason.
+- `syscall-off-by-one` quoted `if name, ok := tab[nr]; ok {`. The
+  lookup is now `name, ok := tab[nr]` on its own line with the test
+  after it, and the only remaining `; ok {` form nearby is over `tab[n]`
+  in the uid resolver.
+- `oflag-accmode-ignored` quoted `n &^= 3`, which is not in `interp.go`
+  any more: masking the access-mode bits out was wrong about what
+  ausearch prints and was replaced by printing the base name only when
+  the low two bits are zero. The entry now mutates that rule instead.
+- `flags-empty-is-zero` still matched, twice, because `cloneText` grew
+  the same three lines as `flagsOrRaw`. `t/patch.py` refuses an ambiguous
+  pattern, which is right, and the entry is re-quoted with the function
+  that follows it as an anchor.
+
+`t/run.sh` now asks the question the sweep cannot: `t/patch.py --check`
+replays the unescaping, counts the matches for every entry, and exits
+non-zero if any pattern does not match exactly once. It takes about a
+second, so it runs in `make test` where the hour-long sweep cannot, and
+it was watched to go red against each of the three ways an entry dies, a
+pattern that is gone, a pattern that matches twice, and a backslash
+escaped one level too few, and green again after each.
+
+The separation of NOPATCH from NOBUILD is the other half of it. Both
+were printed as NOBUILD, and a pattern that no longer applies and a
+mutant that does not compile are different problems with different
+fixes.
+
+### The four survivors
+
+Three are equivalent and stay in the catalogue so that the claim can be
+checked. The fourth is not equivalent and is a gap.
+
+`field-name-needs-two-chars` starts the name scan one byte later. The
+caller has already established that the first byte is a letter, and a
+letter is a name byte, so the loop's first iteration could only have
+advanced past it. The two versions compute the same length for every
+input, one-character names included.
+
+`tty-escape-shortest-match` takes the first matching escape sequence
+instead of the longest. No entry in the probed table is a proper prefix
+of another, over all 143 of them, so the two rules always pick the same
+sequence. That is a property of this ausearch's table and not of the
+code, which is why the longest-match loop stays.
+
+`clone-flags-from-bit-zero` starts clone's flag scan at bit 0 instead of
+bit 8. The table it reads is generated with a floor of bit 8, because
+probing the low byte as flags records bit 0 as SIGHUP, so there is
+nothing below bit 8 for the loop to find.
+
+`proctitle-leading-nul-becomes-space` deletes the skip of a single
+leading NUL in a `proctitle` value, which would put a space at the front
+of the command line instead. It survives because no `proctitle` in the
+corpus starts with a NUL byte, and it cannot be killed by comparison:
+handed `proctitle=002F62696E2F6C73002D6C`, ausearch 4.0.2 answers
+`/bin/ls -l C73002D6C`, consuming the leading `00` as two characters
+rather than one byte and then running off the end of its own buffer into
+the remaining hex digits. There is no correct answer on the other side
+to compare against. Killing it means a corpus record plus a third entry
+in `t/known-diff.txt` recording that ausearch is wrong here, and that is
+queued rather than done.
+
+Two results from earlier runs that were worth more than the count.
 `arg-prot-no-none` survived the first run of 58 and was not equivalent:
 the corpus held no mmap protection with the PROT_SEM bit set and no
 other bit, which is the only value the two versions disagree about. The
@@ -245,33 +345,62 @@ exists for. It appends `.UTC()` to the timestamp formatter, passes every
 assertion the suite had before that check was added, and is wrong on
 every machine not in UTC.
 
+### A check pointed at the wrong binary
+
+The suite names `$AUDITP` everywhere, which is how the mutation harness
+runs the whole suite against a binary built from patched sources without
+touching the working tree. One line did not: the JSON check was invoked
+with `--auditp ./auditp`, so under a mutation run it read the unmutated
+program and compared it with itself. Nothing in the JSON writer was
+mutated either, so the hole had no witness on either side.
+
+Both halves are fixed. The pin is one word, and three mutants of the
+JSON-only code were added to the catalogue: dropping a nested field from
+the `order` list, letting a repeated field name overwrite the first
+instead of being suffixed, and emitting the hex form of the values that
+are not valid UTF-8 for the valid ones instead. All three survive with
+`./auditp` in that line and all three die with `$AUDITP`, which is how
+the pin was found.
+
 ## What does not work
 
-**16 fields are refused.** `saddr` in a SOCKADDR record is carried as the
-hex string; ausearch decodes the `sockaddr` and prints
-`{ saddr_fam=inet laddr=10.0.0.1 lport=443 }`. TTY `data` is carried as
-hex; ausearch renders it as text with control characters named,
-`"ls -l /srv",<ret>`. The other ten are syscall arguments, refused under
-nine names: `a0/bpf`, `a0/ptrace`, `a0/socketcall`, `a1/epoll_ctl`,
-`a1/fcntl`, `a1/umount2`, `a2/clone`, `a3/mount` and `a3/sendto`. Each
-prints the raw value and is counted, rather than printing a plausible
-number, which would be a wrong answer rather than a gap. Across both
-architecture tables there are 31 and 34 such pairs ausearch interprets
-and auditp does not; the corpus reaches ten of them.
+**42 fields are refused, over 18 syscall arguments.** ausearch
+interprets the argument of a particular syscall for more pairs than
+auditp has a kind for, and the 18 left are `a0` of `clock_settime`,
+`getrlimit`, `personality`, `prctl`, `setrlimit` and `unshare`, `a1` of
+`fsconfig`, `fsmount`, `fsopen`, `getsockopt`, `sched_setscheduler`,
+`setns` and `setsockopt`, and `a2` of `fsmount`, `getsockopt`,
+`mq_open`, `setsockopt` and `shmget`. Each prints the raw value and is
+counted, rather than printing a plausible number, which would be a wrong
+answer rather than a gap. The corpus holds a record for every one of the
+18 and the suite requires the refused set and the gap the census
+enumerates to be equal.
 
-**The corpus is written by us.** Every number above is measured over 903
-records that `t/gen.py` produced. ausearch reads them exactly as it reads
-a kernel's own log, so the oracle is external, but the inputs are not: a
+**Three sockaddr families are refused.** ax25, atmpvc and x25 carry a
+raw byte string that ausearch octal-escapes, and for an ax25 address
+shorter than nine bytes it writes `call=` and then nothing. Five of the
+89 shapes the probe builds fall in those families and auditp prints the
+hex it was given for all five. `saddr` for the other families and TTY
+`data` were both in this list and are not any more: 84 of the 89
+sockaddr shapes and all 363 TTY renderings are identical to ausearch.
+
+**The corpus is written by us.** Every number above is measured over
+1,152 records that `t/gen.py` produced. ausearch reads them exactly as
+it reads a kernel's own log, so the oracle is external, but the inputs
+are not: a
 construct nobody thought of is a construct the corpus does not hold. The
 deleted harvest is the thing that would have fixed this and it cannot be
 published.
 
-**The hostile corpus is generated and never read.** `t/corpus/hostile.log`
-holds 20 malformed lines, the suite checks that it regenerates byte for
-byte, and then nothing feeds it to auditp. There is no truncation sweep,
-no byte-flip sweep, and no measurement of whether auditp refuses more or
-less than ausearch refuses on bad input. An audit log is
-attacker-influenced in any tool that ships one off a machine.
+**Hostile input is read now, and the ceilings are not zero.** The 24
+malformed lines and the 1,116 truncation and byte-flip cases are put to
+both parsers, and the two directions are counted apart: 131 corrupted
+lines ausearch reads and auditp refuses, 155 the other way. Both are
+ceilings in the suite rather than zeroes, because every one of them is a
+byte moved inside the record header, where ausearch hunts for
+`msg=audit(` anywhere in the line and auditp requires it where the
+format puts it. Which of the two is right about such a line is not
+established.
 
 **`ausearch --format csv` and `aureport` are not used.** Both are second
 views of the same events derived differently inside the same tool, so they

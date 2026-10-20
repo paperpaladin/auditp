@@ -32,7 +32,7 @@ key-ignores-node@@@parse.go@@@		return fmt.Sprintf("%s:%d.%03d:%d", r.Node, r.Se
 events-adjacent-only@@@read.go@@@		ev := index[k]@@@		ev := index[k]\n		if len(events) > 0 && events[len(events)-1] != ev {\n			ev = nil\n		}
 # --- the hex decoder and the escape rendering ---
 hex-no-nul-truncate@@@interp.go@@@		case c == 0:\n			return string(out)@@@		case c == 0:\n			continue
-hex-escape-in-hex@@@interp.go@@@			out = append(out, '\\', '0'+(c>>6)&7, '0'+(c>>3)&7, '0'+c&7)@@@			out = append(out, '\\', 'x', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
+hex-escape-in-hex@@@interp.go@@@			out = append(out, '\\\\', '0'+(c>>6)&7, '0'+(c>>3)&7, '0'+c&7)@@@			out = append(out, '\\\\', 'x', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&15])
 hex-escape-boundary@@@interp.go@@@		case c < 0x20:@@@		case c < 0x21:
 hex-escape-high-bytes@@@interp.go@@@		case c < 0x20:@@@		case c < 0x20 || c > 0x7e:
 hexshaped-even-only@@@parse.go@@@	if f.Enc != EncBare || len(f.Raw) < 2 {@@@	if f.Enc != EncBare || len(f.Raw) < 2 || len(f.Raw)%2 != 0 {
@@ -46,7 +46,7 @@ execve-args-not-decoded@@@interp.go@@@	return r.Type == "EXECVE" && len(f.Name) 
 proctitle-keeps-nul@@@interp.go@@@		if c[i] == 0 {\n			c[i] = ' '\n		}@@@		if c[i] == 0 {\n			c[i] = 0\n		}
 # --- the tables ---
 syscall-ignores-arch@@@interp.go@@@	case "i386":\n		tab = syscallI386@@@	case "i386":\n		tab = syscallX8664
-syscall-off-by-one@@@interp.go@@@	if name, ok := tab[nr]; ok {@@@	if name, ok := tab[nr+1]; ok {
+syscall-off-by-one@@@interp.go@@@	name, ok := tab[nr]@@@	name, ok := tab[nr+1]
 arch-table-ignored@@@interp.go@@@	if name, ok := archName[int(n)]; ok {@@@	if name, ok := archName[int(n)+1]; ok {
 # --- the interpreters ---
 uid-falls-back-to-number@@@interp.go@@@	return fmt.Sprintf("unknown(%d)", n)@@@	return raw
@@ -65,7 +65,7 @@ res-yes-no-swapped@@@interp.go@@@	case 0:\n		return "no"\n	case 1:\n		return "ye
 sig-zero-not-special@@@interp.go@@@	if name, ok := signalName[int(n)]; ok {@@@	if name, ok := signalName[int(n)]; ok && n != 0 {
 family-uses-socket-table@@@interp.go@@@	if name, ok := nfprotoName[int(n)]; ok {@@@	if name, ok := nfprotoName[int(n)+1]; ok {
 mapflags-always-mapfile@@@interp.go@@@	if n&3 == 0 {\n		parts = append(parts, "MAP_FILE")\n	}@@@	parts = append(parts, "MAP_FILE")
-oflag-accmode-ignored@@@interp.go@@@		n &^= 3@@@		n &^= 0
+oflag-accmode-ignored@@@interp.go@@@	if !accmode || n&3 == 0 {@@@	if true {
 time-month-day-swapped@@@interp.go@@@	return fmt.Sprintf("%s.%03d", t.Format("01/02/2006 15:04:05"), r.Millis),@@@	return fmt.Sprintf("%s.%03d", t.Format("02/01/2006 15:04:05"), r.Millis),
 time-millis-dropped@@@interp.go@@@	return fmt.Sprintf("%s.%03d", t.Format("01/02/2006 15:04:05"), r.Millis),@@@	return fmt.Sprintf("%s.000", t.Format("01/02/2006 15:04:05")),
 typename-not-resolved@@@interp.go@@@				if name := auditTypeName[num]; name != "" {@@@				if name := auditTypeName[num]; false {
@@ -131,7 +131,7 @@ bpf-table-off-by-one@@@args.go@@@		if name, ok := bpfCmdName[int(n)]; ok {@@@		i
 ptrace-peekuser-spelling@@@args.go@@@		if name, ok := ptraceReqName[int(n)]; ok {@@@		if name, ok := ptraceReqName[int(n)]; ok && n != 3 {
 # --- mount and umount2 flags ---
 flags-unknown-bit-printed@@@args.go@@@	if len(parts) == 0 {\n		return "0x" + raw\n	}\n	return strings.Join(parts, "|")\n}\n\nfunc protText@@@	if len(parts) == 0 {\n		return "0x" + raw\n	}\n	for b := 0; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit != 0 {\n			if _, ok := tab[int(bit)]; !ok {\n				parts = append(parts, fmt.Sprintf("0x%x", bit))\n			}\n		}\n	}\n	return strings.Join(parts, "|")\n}\n\nfunc protText
-flags-empty-is-zero@@@args.go@@@	if len(parts) == 0 {\n		return "0x" + raw\n	}@@@	if len(parts) == 0 {\n		return "0x0"\n	}
+flags-empty-is-zero@@@args.go@@@	if len(parts) == 0 {\n		return "0x" + raw\n	}\n	return strings.Join(parts, "|")\n}\n\nfunc protText@@@	if len(parts) == 0 {\n		return "0x0"\n	}\n	return strings.Join(parts, "|")\n}\n\nfunc protText
 flags-32-bits-only@@@args.go@@@	for b := 0; b < 64; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := tab[int(bit)]; ok {\n			parts = append(parts, name)\n		}\n	}\n	if len(parts) == 0 {@@@	for b := 0; b < 31; b++ {\n		bit := uint64(1) << uint(b)\n		if n&bit == 0 {\n			continue\n		}\n		if name, ok := tab[int(bit)]; ok {\n			parts = append(parts, name)\n		}\n	}\n	if len(parts) == 0 {
 mount-and-umount-share-a-table@@@args.go@@@	case argUmountFlags:\n		return flagsOrRaw(n, raw, umountFlagName), ip.claim(what)@@@	case argUmountFlags:\n		return flagsOrRaw(n, raw, mountFlagName), ip.claim(what)
 # --- clone ---
@@ -180,3 +180,11 @@ event-closed-by-everything@@@read.go@@@		if endsEvent(r.TypeNum) {@@@		if true {
 event-end-range-off-by-one@@@parse.go@@@		if typeNum >= r[0] && typeNum <= r[1] {@@@		if typeNum > r[0] && typeNum <= r[1] {
 typenum-not-resolved@@@parse.go@@@	r.TypeNum = typeNumber(r.Type)@@@	r.TypeNum = -1
 typenum-unknown-spelling-ignored@@@parse.go@@@	if inner, ok := strings.CutPrefix(typ, "UNKNOWN["); ok {@@@	if inner, ok := strings.CutPrefix(typ, "NOSUCHPREFIX["); ok {
+# --- the JSON form ---
+# Nothing mutated output.go until now, and the one check that reads -o
+# json was pointed at ./auditp rather than at $AUDITP, so under the
+# mutation harness it read the unmutated binary.  Three defects in the
+# JSON-only code, each caught by t/jsoncheck.py and by nothing else.
+json-order-omits-subfields@@@output.go@@@					jr.setField(sub, ip.Field(r, g))\n					jr.Order = append(jr.Order, sub)@@@					jr.setField(sub, ip.Field(r, g))
+json-duplicate-name-overwrites@@@output.go@@@					if _, dup := jr.Fields[name]; !dup {@@@					if true {
+json-no-hex-for-invalid-utf8@@@output.go@@@	if !utf8.ValidString(val) {@@@	if utf8.ValidString(val) {

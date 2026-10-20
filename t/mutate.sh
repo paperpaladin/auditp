@@ -12,8 +12,13 @@
 #   KILLED    the suite went red, and the names of the assertions that
 #             caught it are printed
 #   SURVIVED  the suite stayed green.  A hole, written down as one.
-#   NOBUILD   the patch did not apply or the result did not compile.  Not
-#             a result about the suite at all, and counting it as a kill
+#   NOPATCH   the pattern is absent from the file or occurs more than
+#             once, so the entry describes source that is not there any
+#             more.  Four entries sat in this state unnoticed because it
+#             shared a bucket with the one below.  t/patch.py --check,
+#             which t/run.sh runs, is what now catches it in a second.
+#   NOBUILD   the patch applied and the result did not compile.  Neither
+#             is a result about the suite, and counting either as a kill
 #             would be the easiest way to fake this number.
 set -u
 cd "$(dirname "$0")/.." || exit 2
@@ -26,6 +31,7 @@ cp ./*.go go.mod "$T/src/"
 killed=0
 survived=0
 nobuild=0
+nopatch=0
 survivors=""
 
 run_one() {
@@ -36,8 +42,8 @@ run_one() {
 	rm -rf "$T/w"
 	cp -r "$T/src" "$T/w"
 	if ! python3 t/patch.py "$T/w/$file" "$old" "$new"; then
-		nobuild=$((nobuild + 1))
-		echo "NOBUILD  $name (pattern not found or ambiguous)"
+		nopatch=$((nopatch + 1))
+		echo "NOPATCH  $name (pattern not found or ambiguous)"
 		return
 	fi
 	if ! (cd "$T/w" && go build -mod=mod -o ../mut . ) 2>"$T/build.err"; then
@@ -88,7 +94,8 @@ while [ "$i" -lt "$n" ]; do
 done
 
 echo
-echo "mutants: $killed killed, $survived survived, $nobuild did not build"
+echo "mutants: $killed killed, $survived survived, $nopatch did not apply,"\
+     "$nobuild did not build"
 [ -n "$survivors" ] && echo "survivors:$survivors"
-[ "$nobuild" -eq 0 ] || exit 1
+[ "$nobuild" -eq 0 ] && [ "$nopatch" -eq 0 ] || exit 1
 exit 0

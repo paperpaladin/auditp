@@ -14,7 +14,7 @@ import (
 	"os"
 )
 
-const usage = `usage: auditp [-i] [-o text|json|flat|census|unparse] [-strict] FILE
+const usage = `usage: auditp [-i] [-o text|json|flat|census|unparse|decode] [-strict] FILE
 
   -i         interpret field values (syscall names, uids, modes, flags)
   -o FORM    output form:
