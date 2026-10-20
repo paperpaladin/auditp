@@ -568,6 +568,53 @@ fl=$(tr_ flip-looser)
 if [ "${fl:-99999}" -le 170 ]; then ok "corrupt lines auditp reads and ausearch refuses: $fl (ceiling 170)"
 else no "auditp now reads $fl corrupt lines ausearch refuses, ceiling is 170"; fi
 
+# --- 11. the other two views inside auditd ----------------------------
+# ausearch -i prints fields; --format csv prints one row per event with
+# the subject, object and result worked out by a higher layer; aureport
+# walks the events and counts.  The second and third are derived
+# differently from the first inside the same tool, so each can disagree
+# with it about an event the per-field comparison agrees on, and both
+# were sitting unused.
+#
+# What each compares and what it deliberately leaves alone is at the top
+# of the two scripts.  Neither replaces the field comparison: a count
+# over a corpus is a weaker instrument than a comparison per field, and
+# the reason to run them is the derivation, not the number.
+echo "--- ausearch --format csv, one row per event"
+for log in "$CORPUS" t/corpus/interleaved.log; do
+	cout=$(python3 t/csvview.py --auditp "$AUDITP" --log "$log" 2>&1)
+	crc=$?
+	cv_() { echo "$cout" | awk -v k="$1" '$0 ~ "^"k" "{print $NF; exit}'; }
+	if [ "$crc" -eq 0 ]; then
+		ok "csv: $(cv_ events) events, $(cv_ "EVENT agree") record types, $(cv_ "SESSION agree") sessions, $(cv_ "SUBJ_PRIME agree") subjects, $(cv_ "RESULT agree") results identical in $(basename "$log")"
+	else
+		no "the csv view disagrees with auditp on $(basename "$log")"
+		echo "$cout" | sed 's/^/    /' | sed -n '1,20p'
+	fi
+done
+# Floors on the main corpus only: the interleaved log is two events and
+# is there for the assembly question, not for the counts.
+cout=$(python3 t/csvview.py --auditp "$AUDITP" --log "$CORPUS" 2>&1)
+cv_() { echo "$cout" | awk -v k="$1" '$0 ~ "^"k" "{print $NF; exit}'; }
+floor "csv rows compared"             800 "$(cv_ events)"
+floor "csv record types compared"     800 "$(cv_ "EVENT compared")"
+floor "csv sessions compared"         600 "$(cv_ "SESSION compared")"
+floor "csv subjects compared"         600 "$(cv_ "SUBJ_PRIME compared")"
+floor "csv results compared"          450 "$(cv_ "RESULT compared")"
+
+echo "--- aureport --summary, counts rather than fields"
+aout=$(python3 t/aureport.py --auditp "$AUDITP" --log "$CORPUS" 2>&1)
+arc=$?
+ar_() { echo "$aout" | awk -v k="$1" '$0 ~ "^"k" "{print $NF; exit}'; }
+if [ "$arc" -eq 0 ]; then
+	ok "aureport: $(ar_ "syscall names agree") syscall names counted identically over $(ar_ "syscall records counted") records"
+else
+	no "aureport's syscall summary disagrees with auditp"
+	echo "$aout" | sed 's/^/    /' | sed -n '1,20p'
+fi
+floor "syscall names compared against aureport"  85 "$(ar_ "syscall names compared")"
+floor "records behind the aureport counts"      550 "$(ar_ "syscall records counted")"
+
 # ------------------------------------------------------------------ JSON form
 # Nothing else here reads -o json. It is the form a pipeline consumes, and a
 # comma in the wrong place or a field dropped from the map would not have

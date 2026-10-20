@@ -71,11 +71,11 @@ than assumed:
 ## Numbers
 
 Measured on 2 November 2026, auditd 4.0.2, kernel 7.2.13-200.fc44.x86_64,
-go 1.24.4. `make test` prints all of them and takes about 15 seconds.
+go 1.24.4. `make test` prints all of them and takes about 20 seconds.
 
 | what | measured |
 |---|---|
-| assertions | 93 passed, 0 failed |
+| assertions | 103 passed, 0 failed |
 | fields compared against `ausearch -i`, whole corpus | 20,903 over 119 distinct names |
 | of those, translated by auditp and identical | 15,270 |
 | of those, passed through by auditp and identical | 5,588 |
@@ -95,6 +95,8 @@ go 1.24.4. `make test` prints all of them and takes about 15 seconds.
 | truncated and corrupted inputs | 1,116 cases, 0 crashes, 0 misread |
 | malformed lines put to both parsers | 24, no over-refusal either way |
 | round trip: records written back out byte for byte | 1,152 of 1,152, and 9 of 9 |
+| `ausearch --format csv` rows against auditp's events | 874, over 6 of its 16 columns |
+| `aureport -s --summary -i` syscall names | 91 counted identically over 602 records |
 | mutants (`make mutants`, not part of `make test`) | 118 applied, 114 killed, 4 survived, 0 did not apply, 0 did not build |
 
 Sixteen tables are each built from two sources and compared every run:
@@ -149,6 +151,75 @@ whose value is empty come out of its output identically. The kernel
 hex-encodes that argument as `20` and auditp reads back one space.
 Neither side can do anything about it: `ausearch -i` is not a
 round-trippable format and this is the record that proves it.
+
+## The other two views inside auditd
+
+`ausearch -i` prints fields. `ausearch --format csv` prints one row per
+event with the subject, the object, the action and the result worked out
+by a higher layer. `aureport --summary` walks the events and counts.
+The second and third are derived differently from the first inside the
+same tool, so each can disagree with it about an event the per-field
+comparison agrees on. Both were sitting unused and both are wired up
+now, in `t/csvview.py` and `t/aureport.py`.
+
+Neither replaces the field comparison. A count over a corpus is a weaker
+instrument than a comparison per field, and the reason to run these is
+the derivation rather than the number.
+
+The csv gives 874 rows for 874 events and six of its columns are a
+restatement of something auditp already has: `NODE` and `SERIAL_NUM`
+from the event key, `DATE` and `TIME` from the timestamp formatted a
+second way, `EVENT`, `SESSION`, `SUBJ_PRIME`, `SUBJ_SEC` and `RESULT`.
+All of them agree. `aureport -s --summary -i` counts records per syscall
+NAME, and the name depends on the record's own arch, so 91 names over
+602 records put both syscall tables and the choice between them under a
+third derivation. All 91 agree.
+
+What lining them up required is the interesting part, and every rule
+below is ausearch being different from itself rather than auditp being
+wrong:
+
+- The csv leaves `EVENT` empty for a record type libaudit has no number
+  for, where `ausearch -i` prints the name out of the record's own text.
+  Three in the corpus: LANDLOCK_ACCESS, LANDLOCK_DOMAIN and
+  `UNKNOWN[9999]`.
+- The csv leaves `SUBJ_SEC` empty for 6 events, all USER_LOGIN or
+  DAEMON_START/END, where `-i` prints a uid.
+- `SUBJ_PRIME` is the nested `acct=` for a USER_LOGIN, `system` for an
+  unset login uid, and the login uid's name otherwise. The first version
+  of that rule took `acct=` wherever there was one and differed on 25
+  events, because libaudit prefers it only for a login, where the
+  account is the one being logged into rather than the subject doing it.
+- `RESULT` is derived from the record type and its fields when there is
+  no `success=` to restate, which is 178 of the 874 events, so only the
+  512 that have one are compared.
+- aureport leaves syscall 0 out of its syscall summary entirely. Four
+  records in the corpus call it, two x86_64 `read` and two i386
+  `restart_syscall`, and both names appear in the report with the counts
+  of the other records that call them, so this is not a missing table
+  entry.
+- aureport does not fold i386's multiplexers into the syscall name.
+  `ausearch -i` prints `socketcall(bind)` and `ipc(msgsnd)`; aureport
+  prints `socketcall` and `ipc`, 11 and 9 of them, and names no sub-call
+  anywhere.
+
+One trap in the alignment was ours. An audit key is not unique: the
+corpus holds a USER_AUTH and a BPF event at the same timestamp and
+serial, and ausearch emits them in the other order from auditp. Pairing
+by position reported both as a disagreement about the record type, which
+is an ordering difference between two events both tools agree exist
+arriving dressed as a parse defect. `t/jsoncheck.py` documents the same
+trap from the other side, where keying on the string collapsed the pair
+and invented 17 field disagreements.
+
+Both checks were watched to fail. The csv comparison over the main
+corpus kills `uid-no-unset` with 244 subject disagreements and
+`key-ignores-node` by leaving 2 events unpaired in each direction, and
+over the interleaved corpus it kills `events-adjacent-only`, which the
+main corpus cannot reach. The aureport comparison kills
+`syscall-ignores-arch` with 62 names differing and `syscall-off-by-one`
+with 132. All five are already killed elsewhere in the suite; what the
+runs establish is that these checks can tell.
 
 ## What the corpus holds
 
@@ -234,7 +305,11 @@ did not compile.
 
 **118 mutants, 114 killed, 4 survived, 0 did not apply, 0 did not
 build.** Measured 2 November 2026, every entry in `t/mutants.txt` run
-against the suite as committed, 31 minutes.
+against the suite, 31 minutes. The run was made before the csv and
+aureport comparisons below were added, which can only turn a survivor
+into a kill, so each of the four survivors was then put to both new
+checks on its own and survived both: the figures hold for the suite as
+committed.
 
 They are spread over the lexer (the quoted and single-quoted encodings,
 the field-name rule, the value terminator, the prose prefix), the event
@@ -402,10 +477,28 @@ byte moved inside the record header, where ausearch hunts for
 format puts it. Which of the two is right about such a line is not
 established.
 
-**`ausearch --format csv` and `aureport` are not used.** Both are second
-views of the same events derived differently inside the same tool, so they
-can disagree with `-i` about an event the field comparison agrees on.
-Neither is wired up.
+**Ten of the csv's sixteen columns are not compared.** `EVENT_KIND`,
+`SUBJ_KIND`, `ACTION` and `OBJ_KIND` are libaudit's classification of an
+event, which auditp does not do and lists as a non-goal; `OBJ_PRIME`,
+`OBJ_SEC` and `HOW` are assembled from several fields by a rule that is
+not a restatement of any one of them. `HOW` is the executable for 594 of
+the 874 events, the syscall name for 15, empty for 179 and something
+else for 86. `OBJ_PRIME` is the `name` field for 60, empty for 549 and
+something else for 265. Those counts are printed every run instead of
+being compared, which is the measured form of saying auditp does not
+classify events.
+
+**One aureport summary of eleven is compared.** `-s --summary -i` is the
+syscall names, and it is the one whose counting rule could be worked
+out. `-u` and `-x` are counted and reported: aureport says 248 records
+have an unset login uid where 245 carry `auid=4294967295`, and its
+executable summary prints `(null)` for a record with no `exe=` and
+counts two of the ten real executables 1 and 2 below the number of
+records naming them. Neither is understood, so neither is asserted. The
+other eight summaries, including the file and host ones, are not read at
+all: aureport renders a file name with its own escaping, so comparing
+those means a third rendering rule rather than a third derivation of the
+same value.
 
 **The field splitter is shared code on both sides of the comparison.**
 `t/oracle.py` splits ausearch's output into fields with the same rule

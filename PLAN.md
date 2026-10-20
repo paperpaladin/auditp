@@ -273,12 +273,40 @@ Ranked by how little of it we control:
 ### Milestone 7: what is left
 
 - [x] README with the measured numbers and the gaps
-- [ ] `--format csv` as a second, higher-level comparison
+- [x] `--format csv` as a second, higher-level comparison
       why: it is derived differently inside ausearch, so it can disagree
       with `-i` about the same event, and that disagreement is
       information.
-- [ ] `aureport` as a third view
+      done: 874 rows against 874 events over six of the sixteen
+      columns, all agreeing, and four disagreements between ausearch's
+      two views written down: an empty EVENT for a type libaudit has no
+      number for, an empty SUBJ_SEC on a login, SUBJ_PRIME taken from
+      the nested acct= only for a USER_LOGIN, and a RESULT for 178
+      events that carry no success= field.
+- [x] `aureport` as a third view
       why: it counts and summarises rather than printing fields, so it
       can be wrong about an event the field comparison agrees on.
+      done: the interpreted syscall summary, 91 names over 602 records,
+      all agreeing once two of aureport's own rules are applied: it
+      leaves syscall 0 out entirely and it does not fold i386's
+      socketcall and ipc sub-calls into the name. One summary of
+      eleven; the README says why the other ten are counted and not
+      compared.
+- [ ] A corpus record whose proctitle begins with a NUL, and the third
+      known-diff entry it needs
+      why: `proctitle-leading-nul-becomes-space` is the one surviving
+      mutant that is not equivalent. No proctitle in the corpus starts
+      with a NUL byte, and ausearch cannot settle the case: handed
+      `proctitle=002F62696E2F6C73002D6C` it answers
+      `/bin/ls -l C73002D6C`, reading the leading `00` as two characters
+      rather than one byte. So killing it means recording that ausearch
+      is wrong here, which is what `t/known-diff.txt` is for.
+- [ ] The remaining aureport summaries, or a reason in the README for
+      each one left out
+      why: `-u` says 248 records have an unset login uid where 245 carry
+      `auid=4294967295`, and `-x` counts two executables below the
+      number of records naming them. Both are reported and neither is
+      understood. A difference nobody has explained is not the same as a
+      difference that does not matter.
 - [ ] A second machine's corpus, or a second auditd version
       why: every number here is from auditd 4.0.2 on one kernel.
